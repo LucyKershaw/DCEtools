@@ -48,5 +48,5 @@ def roi2mask(filename,x,y,z):
 		plt.imshow(np.flipud(slice_tmp),cmap='gray',vmin=0,vmax=1)
 		# finally, put this into the full mask
 		mask[:,:,SliceIndex-1]=np.flipud(slice_tmp) # flip up-down to make this the same orientation as a read-in dicom image
-	return mask
+	return mask # return the mask as a numpy array 
 
