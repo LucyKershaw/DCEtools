@@ -1,5 +1,11 @@
 # FLASH signal equation - conversion from SI to concentration and vice-versa
 
+def SIeqn(M0, flip, TR, T1base, ):
+	pass
+
+
+
+
 # Conversion from SI to concentration
 def SI2Conc(SIcurve,TR,flip,T1base,baselinepts,M0):
 	# TR and T1 should be in s, resulting delta R1 will be in s^-1

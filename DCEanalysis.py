@@ -8,10 +8,12 @@ import os
 import glob
 import PIL
 import scipy.misc
+import SRTurboFLASH
+import scipy.optimize
 
 class patient(object): # patient inherits from the object class
 	
-	def __init__(self,studynumber,patientnumber,visitnumber,visitdate,hct): # set the patient number, visit number and hct for these data
+	def __init__(self,studynumber,patientnumber,visitnumber,visitdate,hct=0.42): # set the patient number, visit number and hct for these data
 		self.studyrootdirect=os.path.normpath("E:/HeadAndNeck/HeadNeckNewPts/Patients/") # this will be head and neck data
 		self.hct=hct
 		self.studynumber=studynumber
@@ -106,7 +108,9 @@ class patient(object): # patient inherits from the object class
 		im=info.pixel_array		
 		self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('TIs','f8',len(TIdirects)),('n','f8')])
 		self.T1info['pixelsize']=float(info.PixelSpacing[0])
-		self.T1info['TR']=float(info.RepetitionTime)
+		#self.T1info['TR']=float(info.RepetitionTime)
+		self.T1info['TR']=float(4) #Echo spacing is 4 ms in HN data - check!
+		self.T1info['n']=float(5) #HN data - check! 
 		self.T1info['FlipAngle']=float(info.FlipAngle)
 		self.T1info['TIs']=np.array([float(item.split('=')[1]) for item in TIdirects])
 
@@ -127,7 +131,8 @@ class patient(object): # patient inherits from the object class
 
 	# Define methods to read in and convert the ROI files, and also to show which ROIs have been read
 	#####################################################
-	def read_ROI(self):
+	def read_rois(self,readall=1):
+		# readall is flag to read all .roi files in the folder.  if you want to choose, set readall to 0 instead
 		# Check for T2w images - need their size to get the roi array size
 		if not hasattr(self,'T2wims'):
 			print("Please read the T2w images first")
@@ -142,8 +147,17 @@ class patient(object): # patient inherits from the object class
 		print("ROI files found:")
 		print(roifiles)
 
+		# deal with choosing files if requested
+		if readall==0:
+			[print(item) for item in enumerate(roifiles)]
+			ids=input("Input the id number for the chosen file(s), separated by commas: ")
+			ids=ids.split(',')
+			roifiles=[roifiles[int(item)] for item in ids]
+			print("Chosen rois:")
+			[print(item) for item in roifiles]
+
 		#make the appropriate structured array to put the read rois into
-		self.rois=np.zeros(len(roifiles),dtype=[('roiname','a60'),('hiresarray','u2',self.T2wims.shape),('dynresarray','u2',self.dynims.shape[0:3])])
+		self.rois=np.zeros(len(roifiles),dtype=[('roiname','a60'),('hiresarray','u2',self.T2wims.shape),('dynresarray','u2',self.dynims.shape[0:3]),('T1','f8')])
 
 		# go through each file, reading and converting to arrays
 
@@ -200,18 +214,31 @@ class patient(object): # patient inherits from the object class
 
 	# methods for AIF
 	#####################################################
-	def read_AIF(self):
-		pass # read existing AIF from file
+	def read_AIF_fromfittingfile(self,AIFdirectory='E:\HeadAndNeck\HeadNeckNewPts\Fitting\Tumour'):
+		# read existing AIF from fitting file in given directory
+		# Usually called P50_pre.txt, etc, found in third column in conc units assuming hct of 0.42
+		# and r1 of 4.5
+
+		if self.visitnumber==1:
+			visittext='pre'
+		if self.visitnumber==2:
+			visittext='post'
+
+		filename='P'+str(self.studynumber)+'_'+visittext+'.txt'
+		print('looked for a file called '+filename)
+		AIFfile=np.loadtxt(os.path.join(AIFdirectory,filename))
+		# Convert back to delta R1 and use patient hct
+		self.AIF=(AIFfile[:,2]*4.5)*(1-0.42)/(1-self.hct)
 
 	def getpixelAIF(self):
 		pass # get an AIF from the dynamic data
 		
 	# Initial processing
 	#####################################################
-	def get_T1curve(self):
+	def get_T1curves(self):
 		# method to extract T1 curve from T1 images for loaded rois
 		if not hasattr(self,'rois'):
-			print("Read the roi files first - patient.read_ROI()")
+			print("Read the roi files first - patient.read_rois()")
 			return
 		if not hasattr(self,'T1data'):
 			print("Read in the T1 data first - patient.read_T1data")
@@ -222,26 +249,78 @@ class patient(object): # patient inherits from the object class
 				curves[j,i]=np.sum(self.T1data[:,:,:,j]*self.rois['dynresarray'][i])/np.sum(self.rois['dynresarray'][i])
 		self.T1curves=curves
 
-	def get_SIcurve(self):
+	def get_SIcurves(self):
 		# method to extract SI curves for the loaded rois
 		if not hasattr(self,'rois'):
-			print("Read the roi files first - patient.read_ROI()")
+			print("Read the roi files first - patient.read_rois()")
 			return
 		if not hasattr(self,'dynims'):
 			print("Read in the dynamic data first - patient.read_dynamics")
 			return
 		curves=np.zeros((self.dynims.shape[3],len(self.rois)))
+		
+
+		for i in range(0,len(self.rois)): #for each roi..
+			# add a fourth dimension
+			mask=self.rois['dynresarray'][i]
+			mask.shape=mask.shape+(1,) 
+			# duplicate this mask for all time points using tile
+			ntimepoints=self.dynims.shape[3]
+			bigmask=np.tile(mask,(1,1,1,ntimepoints))
+			#multiply by whole dynamic array, sum over timepoints and divide by mask sum
+			curves[:,i]=np.sum((bigmask*self.dynims),(0,1,2))/np.sum(mask)
+
+		self.SIcurves=curves
+
+	def fit_T1s(self,plotfit=0): # method to do the T1 fitting, set plotfit to 1 if plotting required
+		if not hasattr(self, 'T1curves'):
+			print('Extract the T1 curves first - patient.get_T1curves()')
+			return
+		TIs=self.T1info['TIs'][0]
+		TR=self.T1info['TR']
+		n=self.T1info['n']
+		flip=self.T1info['FlipAngle']
+
+		for i in range(0,self.T1curves.shape[1]):
+			data=self.T1curves[:,i]
+			fit=SRTurboFLASH.fittingfun(TIs,TR,flip,n,data)
+			if plotfit==1:
+				plt.plot(TIs,data,'x')
+				plt.plot(TIs,SRTurboFLASH.SIeqn(fit.x,TIs,TR,flip,n))
+			self.rois['T1'][i]=fit.x[0]
+
+	def SIconvert(self, baselinepts=10): 
+		#Check we have rois and T1s
+		if not hasattr(self,'rois'):
+			print('Read in rois first - patient.read_rois()')
+			return
+		if sum(self.rois['T1']==0):
+			print('fit T1 first - patient.fit_T1s()')
+			return
+		# Convert flip angle to radians
+		rflip=self.dyninfo['FlipAngle']*np.pi/180
+		#extract TR
+		TR=self.dyninfo['TR']/1000
+		Conccurves=np.zeros(self.SIcurves.shape)
+
 		for i in range(0,len(self.rois)):
-			for j in range(0,self.dynims.shape[3]):
-				curves[j,i]=np.sum(self.dynims[:,:,:,j]*self.rois['dynresarray'][i])/np.sum(self.rois['dynresarray'][i])
-		self.dyncurves=curves
-		pass
+			SIcurve=self.SIcurves[:,i]
+			T1base=self.rois['T1'][i]
+			# Convert T1 to R1 in s^-1
+			R1base=1/(T1base/1000)
+			print(R1base)
+			# extract baseline SI and calculate M0
+			base=np.mean(SIcurve[0:baselinepts])
+			print(base)
+			M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
+			print(M0)
+			# Now calculate the R1 curve
+			R1=np.log(((M0*np.sin(rflip))-SIcurve)/(M0*np.sin(rflip)-(SIcurve*np.cos(rflip))))*(-1/TR)
+			# And finally the delta R1 curve
+			Conccurves[:,i]=R1-R1base
 
-	def fit_T1(self): # method to do the T1 fitting
-		pass # method to fit T1 for ROI
+		self.Conccurves=Conccurves
 
-	def SIconvert(self): 
-		pass # convert the dynamic curve to concentration
 
 	# Fitting
 	#####################################################
