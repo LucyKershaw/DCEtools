@@ -10,6 +10,9 @@ import PIL
 import scipy.misc
 import SRTurboFLASH
 import scipy.optimize
+import TwoCXM
+import AATH
+import FLASH
 
 class patient(object): # patient inherits from the object class
 	
@@ -66,7 +69,9 @@ class patient(object): # patient inherits from the object class
 
 		T2wims=np.zeros(np.array([im.shape[0],im.shape[1],numfiles]))
 		for i in range(0,numfiles-1):
-			T2wims[:,:,i]=dicom.read_file(filenames[i]).pixel_array
+			temp=dicom.read_file(filenames[i])
+			imnum=temp.InstanceNumber
+			T2wims[:,:,imnum-1]=temp.pixel_array
 		self.T2wims=T2wims
 
 
@@ -90,7 +95,9 @@ class patient(object): # patient inherits from the object class
 		for i in range(0,len(dyndirects)):
 			dynfiles=glob.glob(dyndirects[i]+"\*")
 			for j in range(0,len(dynfiles)):
-				dynims[:,:,j,i]=dicom.read_file(dynfiles[j]).pixel_array
+				temp=dicom.read_file(dynfiles[j])
+				imnum=temp.InstanceNumber
+				dynims[:,:,imnum-1,i]=temp.pixel_array
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
@@ -119,7 +126,9 @@ class patient(object): # patient inherits from the object class
 		for i in range(0,len(TIdirects)):
 			TIfiles=glob.glob(TIdirects[i]+"\*")
 			for j in range(0,len(TIfiles)):
-				SRims[:,:,j,i]=dicom.read_file(TIfiles[j]).pixel_array
+				temp=dicom.read_file(TIfiles[j])
+				imnum=temp.InstanceNumber
+				SRims[:,:,imnum-1,i]=temp.pixel_array
 		print("T1 measurement image array size is "+str(SRims.shape))
 		self.T1data=SRims
 
@@ -205,7 +214,7 @@ class patient(object): # patient inherits from the object class
 				#plt.imshow(np.flipud(slice_tmp),cmap='gray',vmin=0,vmax=1)
 				# finally, put this into the full mask
 				mask[:,:,SliceIndex-1]=np.flipud(slice_tmp) # flip up-down to make this the same orientation as a read-in dicom image
-				smallmask[:,:,SliceIndex-1]=scipy.misc.imresize(np.flipud(slice_tmp),self.dynims.shape[0:2],interp='nearest')
+				smallmask[:,:,SliceIndex-1]=scipy.misc.imresize(np.flipud(slice_tmp),self.dynims.shape[0:2],interp='nearest')/255
 
 			# put the mask into the rois structured array
 			self.rois['roiname'][i]=roifiles[i]
@@ -229,6 +238,7 @@ class patient(object): # patient inherits from the object class
 		AIFfile=np.loadtxt(os.path.join(AIFdirectory,filename))
 		# Convert back to delta R1 and use patient hct
 		self.AIF=(AIFfile[:,2]*4.5)*(1-0.42)/(1-self.hct)
+		self.t=AIFfile[:,1] # time in minutes
 
 	def getpixelAIF(self):
 		pass # get an AIF from the dynamic data
@@ -294,7 +304,7 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'rois'):
 			print('Read in rois first - patient.read_rois()')
 			return
-		if sum(self.rois['T1']==0):
+		if sum(self.rois['T1'])==0:
 			print('fit T1 first - patient.fit_T1s()')
 			return
 		# Convert flip angle to radians
@@ -321,11 +331,72 @@ class patient(object): # patient inherits from the object class
 
 		self.Conccurves=Conccurves
 
+	def preprocess(self):
+		# function to extract and fit T1 curves, extract SI curves and convert
+		self.get_T1curves()
+		self.get_SIcurves()
+		self.fit_T1s()
+		self.SIconvert()
 
 	# Fitting
 	#####################################################
-	def fit_2CXM(self):
-		pass # Fit the 2CXM to the dynamic curve
+	def fit_Tofts(self):
+		pass
+
+	def fit_ExtTofts(self):
+		pass
+
+	def fit_2CXM(self,SIflag):
+		# check for an AIF
+		if not hasattr(self,'AIF'):
+			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
+			return
+		TwoCXMfitConc=np.zeros([6,len(self.rois)])
+		TwoCXMfitSI=np.zeros([6,len(self.rois)])
+		
+		if SIflag==1:
+			for i in range(0,len(self.rois)):
+				uptake=self.SIcurves[:,i]
+				TR=self.dyninfo['TR']/1000
+				flip=self.dyninfo['FlipAngle']
+				T1base=self.rois['T1'][i]
+				TwoCXMfitSI[:,i]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
+				self.TwoCXMfitSI=TwoCXMfitSI
+
+		else:
+			for i in range(0,len(self.rois)):
+				uptake=self.Conccurves[:,i]
+				TwoCXMfitConc[:,i]=TwoCXM.TwoCXMfittingConc(self.t,self.AIF,uptake,None) # Fit the 2CXM to the dynamic curve
+				self.TwoCXMfitConc=TwoCXMfitConc
+
+
+	def fit_AATH(self,SIflag):
+		# check for an AIF
+		if not hasattr(self,'AIF'):
+			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
+			return
+		AATHfitConc=np.zeros([6,len(self.rois)])
+		AATHfitSI=np.zeros([6,len(self.rois)])
+		
+		if SIflag==1:
+			for i in range(0,len(self.rois)):
+				uptake=self.SIcurves[:,i]
+				TR=self.dyninfo['TR']/1000
+				flip=self.dyninfo['FlipAngle']
+				T1base=self.rois['T1'][i]
+				AATHfitSI[:,i]=AATH.AATHfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
+				self.AATHfitSI=AATHfitSI
+
+		else:
+			for i in range(0,len(self.rois)):
+				uptake=self.Conccurves[:,i]
+				AATHfitConc[:,i]=AATH.AATHfittingConc(self.t,self.AIF,uptake,None) # Fit the 2CXM to the dynamic curve
+				self.AATHfitConc=AATHfitConc
+
+
+	def fit_TH(self):
+		pass
+
 
 	# Display methods
 	#####################################################
