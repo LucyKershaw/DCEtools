@@ -6,7 +6,11 @@ import dicom
 import matplotlib.pyplot as plt
 import os
 import glob
+<<<<<<< HEAD
 import csv
+=======
+
+>>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
 import PIL
 import scipy.misc
 import SRTurboFLASH
@@ -18,8 +22,13 @@ import FLASH
 class patient(object): # patient inherits from the object class
 	
 	def __init__(self,studynumber,patientnumber,visitnumber,visitdate,hct=0.42): # set the patient number, visit number and hct for these data
+<<<<<<< HEAD
 		self.studyrootdirect=os.path.normpath("E:/HeadAndNeck/HeadNeckNewPts/Patients/") # this will be head and neck data
 		#self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
+=======
+		#self.studyrootdirect=os.path.normpath("E:/HeadAndNeck/HeadNeckNewPts/Patients/") # this will be head and neck data
+		self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
+>>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
 		self.hct=hct
 		self.studynumber=studynumber
 		self.patientnumber=patientnumber
@@ -173,7 +182,11 @@ class patient(object): # patient inherits from the object class
 		# go through each file, reading and converting to arrays
 
 		for i in range (0,len(roifiles)):
+<<<<<<< HEAD
 			#print(roifiles[i])
+=======
+			print(roifiles[i])
+>>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
 			#Read the file  - unsigned short little endian
 			roi=np.fromfile(roifiles[i],np.uint16)
 			# Set flag for extended format
@@ -226,7 +239,7 @@ class patient(object): # patient inherits from the object class
 
 	# methods for AIF
 	#####################################################
-	def read_AIF_fromfittingfile(self,AIFdirectory='E:\HeadAndNeck\HeadNeckNewPts\Fitting\Tumour'):
+	def read_AIF_fromfittingfile(self,AIFdirectory="/Users/lkershaw/Desktop/Fitting/Tumour"):#'E:\HeadAndNeck\HeadNeckNewPts\Fitting\Tumour'):
 		# read existing AIF from fitting file in given directory
 		# Usually called P50_pre.txt, etc, found in third column in conc units assuming hct of 0.42
 		# and r1 of 4.5
@@ -414,6 +427,7 @@ class patient(object): # patient inherits from the object class
 
 
 		# Create the file if not already there
+<<<<<<< HEAD
 		if not os.path.isfile(exportfilename):
 			print('Creating file...')
 			f=open(exportfilename,'x')
@@ -426,6 +440,16 @@ class patient(object): # patient inherits from the object class
 			writefile.writerow(np.squeeze(self.AATHfitSI))
 
 		print('Done')
+=======
+		if not os.isfile(exportfilename):
+			f=open(exportfilename,'x')
+			f.close
+
+		else:
+			with open(exportfilename,'a') as csvfile:
+    		writefile=csv.writer(csvfile)
+    		writefile.writerow(squeeze(P42.AATHfitSI))
+>>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
 
 
 
