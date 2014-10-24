@@ -1,7 +1,7 @@
 # Function to rename and sort dicom files from Philips scanner
 
 
-def Filesort_Philips():
+def Filesort_Philips(direct):
 
 	import dicom
 	import glob
@@ -10,10 +10,12 @@ def Filesort_Philips():
 	from tkinter import Tk
 	from tkinter import filedialog
 
-	# First choose a directory for sorting
-	root = Tk()
-	root.withdraw()
-	direct = filedialog.askdirectory(title="select patient directory for sorting")
+	# First choose a directory for sorting, if not specified
+	if direct=='':
+		root = Tk()
+		root.withdraw()
+		direct = filedialog.askdirectory(title="select patient directory for sorting")
+	
 	print(direct)
 	direct=os.path.join(direct,'DICOM')
 

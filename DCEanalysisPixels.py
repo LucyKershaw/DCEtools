@@ -16,6 +16,7 @@ import scipy.optimize
 import TwoCXM
 import AATH
 import FLASH
+import getAIF
 import pprint
 
 class patient(object): # patient inherits from the object class
@@ -205,14 +206,22 @@ class patient(object): # patient inherits from the object class
 	def read_AIF_fromfile(self):
 		# read existing AIF from file in patient/Analysis directory
 		print('looking for AIF file')
-		if not os.path.isfile(os.path.join(self.patientdirect,Analysis,'AIF.txt')):
+		if not os.path.isfile(os.path.join(self.patientdirect,Analysis,'AIF.npy')):
 			print('AIF file not found')
 			return	
-		AIFfile=np.genfromtxt(os.path.join(self.patientdirect,Analysis,'AIF.txt'))
-		self.AIF=AIFfile
+		AIF=np.load(os.path.join(self.patientdirect,Analysis,'AIF.npy'))
+		self.AIF=AIF
 
 	def get_pixel_AIF(self):
-		pass # get an AIF from the dynamic data
+		# Display dynamics and choose slices from which AIF should be extracted
+
+		# Save resulting AIFs for these slices
+
+		# Display AIF candidates and choose which one to use
+		
+		AIF=
+		np.save(os.path.join(self.patientdirect,Analysis,'AIF.npy',AIF) #save chosen AIF in Analysis folder as AIF.
+		self.AIF=AIF
 		
 	# Initial processing
 	#####################################################
