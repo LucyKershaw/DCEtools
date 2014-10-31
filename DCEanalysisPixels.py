@@ -8,6 +8,7 @@ import os
 import glob
 from tkinter import Tk
 from tkinter import filedialog
+from roipoly import roipoly
 
 import scipy.misc
 import SRTurboFLASH
@@ -82,7 +83,7 @@ class patient(object): # patient inherits from the object class
 		im=info.pixel_array
 
 		T2wims=np.zeros(np.array([im.shape[0],im.shape[1],numfiles]))
-		for i in range(0,numfiles-1):
+		for i in range(0,numfiles):
 			temp=dicom.read_file(filenames[i])
 			imnum=temp.InstanceNumber
 			T2wims[:,:,imnum-1]=temp.pixel_array
@@ -90,6 +91,13 @@ class patient(object): # patient inherits from the object class
 
 
 	def read_dynamics(self,seriestag):
+		
+		#Look for dynamics.npy in the Analysis folder first
+		if os.path.isfile(os.path.join(self.patientdirect,'Analysis','dynamics.npy')):
+			print('reading from saved array')
+			self.dynims=np.load(os.path.join(self.patientdirect,'Analysis','dynamics.npy'))
+			self.dyninfo=np.load(os.path.join(self.patientdirect,'Analysis','dyninfo.npy'))
+			return
 		# Use known series tag by calling disp_seriesfolders first
 		
 		# Find folder that matches seriestag
@@ -124,7 +132,7 @@ class patient(object): # patient inherits from the object class
 		self.dyninfo['numslices']=numslices
 
 		# Make an array to hold the dynamic data
-		dynims=np.zeros(np.array([im.shape[0],im.shape[1],numslices,numtimepoints]))
+		dynims=np.zeros(np.array([im.shape[0],im.shape[1],numslices,numtimepoints]),dtype='uint16')
 		
 		# Read files into the array
 		for i in range(0,len(dynfiles)):
@@ -133,6 +141,10 @@ class patient(object): # patient inherits from the object class
 			slice=int(np.floor(i/numtimepoints)) # Work out slice number (begin at zero!)
 			dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
 
+
+		# save this file as an npy array for next time
+		np.save(os.path.join(self.patientdirect,'Analysis','dynamics.npy'),dynims)
+		np.save(os.path.join(self.patientdirect,'Analysis','dyninfo.npy'),self.dyninfo)
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
@@ -151,16 +163,16 @@ class patient(object): # patient inherits from the object class
 		T1files=glob.glob(os.path.join(T1Folders[0],'*.dcm'))
 		info=dicom.read_file(T1files[0])
 		im=info.pixel_array		
-		self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('TIs','f8',len(T1Folders)),('n','f8')])
+		self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('TIs','f8',len(T1Folders)),('N','f8')])
 		self.T1info['pixelsize']=float(info.PixelSpacing[0])
 		self.T1info['TR']=float(info.RepetitionTime)
-		self.T1info['n']=int(info.EchoTrainLength/2)
+		self.T1info['N']=int(info.EchoTrainLength)
 		self.T1info['FlipAngle']=float(info.FlipAngle)
 
 		if info.Manufacturer=='SIEMENS':
-			print('Warning - values for n and TR are probably incorrect for Siemens dicom')
+			print('Warning - values for N and TR are probably incorrect for Siemens dicom')
 			print('Setting these to zero, set them manually')
-			self.T1info['n']=0
+			self.T1info['N']=0
 			self.T1info['TR']=0
 
 		# Make an array of the right size to hold the images
@@ -189,7 +201,8 @@ class patient(object): # patient inherits from the object class
 				if temp.Manufacturer=='Philips Medical Systems':
 					ss=float(info[0x2005,0x100e].value) #extract the scale slope
 					si=float(info[0x2005,0x100d].value) #extract the scale intercept
-
+					print(ss)
+					print(si)
 				T1ims[:,:,z,y]=(temp.pixel_array-si)/ss
 
 		print("T1 measurement image array size is "+str(T1ims.shape))
@@ -206,78 +219,193 @@ class patient(object): # patient inherits from the object class
 	def read_AIF_fromfile(self):
 		# read existing AIF from file in patient/Analysis directory
 		print('looking for AIF file')
-		if not os.path.isfile(os.path.join(self.patientdirect,Analysis,'AIF.npy')):
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','AIF.npy')):
 			print('AIF file not found')
 			return	
-		AIF=np.load(os.path.join(self.patientdirect,Analysis,'AIF.npy'))
+		AIF=np.load(os.path.join(self.patientdirect,'Analysis','AIF.npy'))
 		self.AIF=AIF
 
 	def get_pixel_AIF(self):
 		# Display dynamics and choose slices from which AIF should be extracted
+		# First job - find AIF peak image by finding the index of the maximum pixel value within the first 50 frames for the central slice
+		midslice=np.floor(self.dynims.shape[2]/2)
+		peakframe=np.argmax(np.amax(np.amax(self.dynims[:,:,midslice,0:50],0),0))
+		h2=plt.figure()
+		plt.subplot(2,3,1)
+		plt.imshow(self.dynims[:,:,13,peakframe])
+		plt.title('13')
+		plt.subplot(2,3,2)
+		plt.imshow(self.dynims[:,:,14,peakframe])
+		plt.title('14')
+		plt.subplot(2,3,3)
+		plt.imshow(self.dynims[:,:,15,peakframe])
+		plt.title('15')
+		plt.subplot(2,3,4)
+		plt.imshow(self.dynims[:,:,16,peakframe])
+		plt.title('16')
+		plt.subplot(2,3,5)
+		plt.imshow(self.dynims[:,:,17,peakframe])
+		plt.title('17')
+		plt.subplot(2,3,6)
+		plt.imshow(self.dynims[:,:,18,peakframe])
+		plt.title('18')
 
-		# Save resulting AIFs for these slices
+		ids=input("Input the id number for the slices to be used, separated by commas: ")
+		ids=ids.split(',')
+		ChosenSlices=[int(item) for item in ids]
+		plt.close(h2)
 
-		# Display AIF candidates and choose which one to use
+		# Get resulting AIFs for these slices
+		AIFtemp=np.zeros((2,self.dynims.shape[3],len(ChosenSlices)))
+		for i in range(0,len(ChosenSlices)):
+			AIFtemp[:,:,i]=getAIF.getAIF(self.dynims,ChosenSlices[i], self.dyninfo['TR']/1000, self.dyninfo['FlipAngle'])
+
+		# Choose from plot which one to use
+		h3=plt.figure()
+		for ii in range(0,len(ChosenSlices)): 
+			plt.plot(np.squeeze(AIFtemp[0,:,ii]),label=str(ii)+' - '+str(ChosenSlices[ii])+'L')
+			plt.plot(np.squeeze(AIFtemp[1,:,ii]),label=str(ii)+' - '+str(ChosenSlices[ii])+'R')
+			plt.legend()
 		
-		AIF=
-		np.save(os.path.join(self.patientdirect,Analysis,'AIF.npy',AIF) #save chosen AIF in Analysis folder as AIF.
+		ChooseAIF=input('Which AIF should be used? Input index number, comma, 0 for L, 1 for R')
+		ChooseAIF=ChooseAIF.split(',')
+		AIF=AIFtemp[int(ChooseAIF[1]),:,ChooseAIF[0]]
+		np.save(os.path.join(self.patientdirect,'Analysis','AIFall.npy'),AIFtemp)
+		np.save(os.path.join(self.patientdirect,'Analysis','AIF.npy'),AIF) #save chosen AIF in Analysis folder as AIF.
 		self.AIF=AIF
 		
 	# Initial processing
 	#####################################################
-	def get_T1curves(self):
-		# method to extract T1 curve from T1 images for loaded rois
-		if not hasattr(self,'rois'):
-			print("Read the roi files first - patient.read_rois()")
+	def make_mask(self):
+		#Method to make a binary mask covering the area of interest - use T2w images
+		if not hasattr(self,'T2wims'):
+			print("Read in the T2w data first - patient.read_T2w()")
 			return
-		if not hasattr(self,'T1data'):
-			print("Read in the T1 data first - patient.read_T1data")
-			return
-		curves=np.zeros((self.T1data.shape[3],len(self.rois)))
-		for i in range(0,len(self.rois)):
-			for j in range(0,self.T1data.shape[3]):
-				curves[j,i]=np.sum(self.T1data[:,:,:,j]*self.rois['dynresarray'][i])/np.sum(self.rois['dynresarray'][i])
-		self.T1curves=curves
 
-	def get_SIcurves(self):
-		# method to extract SI curves for the loaded rois
-		if not hasattr(self,'rois'):
-			print("Read the roi files first - patient.read_rois()")
+		# Display the T2w images one at a time and mark roi if required
+		numslices=self.T2wims.shape[2]
+		mask=np.zeros((self.T2wims.shape),dtype='uint16')
+
+		for jj in range(numslices):
+			h3=plt.figure()
+			plt.imshow(self.T2wims[:,:,jj],cmap='gray')
+			useslice=input('Use this slice? 1=yes, 0=no')
+			if int(useslice)==0:
+				plt.close(h3)
+			elif int(useslice)==1:
+				roi=roipoly.roipoly()
+				input('press enter to continue')
+				mask[:,:,jj]=roi.getMask(self.T2wims[:,:,jj])
+			else:
+				print('Aborting')
+				return
+
+		self.mask=mask
+		np.save(os.path.join(self.patientdirect,'Analysis','mask.npy'),mask)
+
+	def convert_mask(self):
+		#Method to convert the T2w mask to the size of the dynamic images
+		if not hasattr(self,'dyninfo'):
+			print('Need dynamic data to convert the mask')
 			return
-		if not hasattr(self,'dynims'):
-			print("Read in the dynamic data first - patient.read_dynamics")
+		
+		if not hasattr(self,'mask'):
+			print('No mask defined yet')
 			return
-		curves=np.zeros((self.dynims.shape[3],len(self.rois)))
+		
+		smallmask=np.zeros(self.dynims.shape[0:3],dtype='uint16')
+		numslices=self.dynims.shape[2]
+
+		for kk in range(numslices):
+			smallmask[:,:,kk]=scipy.misc.imresize(self.mask[:,:,kk],self.dynims.shape[0:2],interp='nearest')/255
+
+		self.dynmask=smallmask
+		np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),smallmask)
+
+	def load_mask(self):
+		#method to load previously made dynamic mask
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','dynmask.npy')):
+			print('No mask saved')
+			return
+		else:
+			self.dynmask=np.load(os.path.join(self.patientdirect,'Analysis','dynmask.npy'))
+
+	# def get_T1curves(self):
+	# 	# method to extract T1 curve from T1 images for loaded rois
+	# 	if not hasattr(self,'rois'):
+	# 		print("Read the roi files first - patient.read_rois()")
+	# 		return
+	# 	if not hasattr(self,'T1data'):
+	# 		print("Read in the T1 data first - patient.read_T1data")
+	# 		return
+	# 	curves=np.zeros((self.T1data.shape[3],len(self.rois)))
+	# 	for i in range(0,len(self.rois)):
+	# 		for j in range(0,self.T1data.shape[3]):
+	# 			curves[j,i]=np.sum(self.T1data[:,:,:,j]*self.rois['dynresarray'][i])/np.sum(self.rois['dynresarray'][i])
+	# 	self.T1curves=curves
+
+	# def get_SIcurves(self):
+	# 	# method to extract SI curves for the loaded rois
+	# 	if not hasattr(self,'rois'):
+	# 		print("Read the roi files first - patient.read_rois()")
+	# 		return
+	# 	if not hasattr(self,'dynims'):
+	# 		print("Read in the dynamic data first - patient.read_dynamics")
+	# 		return
+	# 	curves=np.zeros((self.dynims.shape[3],len(self.rois)))
 		
 
-		for i in range(0,len(self.rois)): #for each roi..
-			# add a fourth dimension
-			mask=self.rois['dynresarray'][i]
-			mask.shape=mask.shape+(1,) 
-			# duplicate this mask for all time points using tile
-			ntimepoints=self.dynims.shape[3]
-			bigmask=np.tile(mask,(1,1,1,ntimepoints))
-			#multiply by whole dynamic array, sum over timepoints and divide by mask sum
-			curves[:,i]=np.sum((bigmask*self.dynims),(0,1,2))/np.sum(mask)
+	# 	for i in range(0,len(self.rois)): #for each roi..
+	# 		# add a fourth dimension
+	# 		mask=self.rois['dynresarray'][i]
+	# 		mask.shape=mask.shape+(1,) 
+	# 		# duplicate this mask for all time points using tile
+	# 		ntimepoints=self.dynims.shape[3]
+	# 		bigmask=np.tile(mask,(1,1,1,ntimepoints))
+	# 		#multiply by whole dynamic array, sum over timepoints and divide by mask sum
+	# 		curves[:,i]=np.sum((bigmask*self.dynims),(0,1,2))/np.sum(mask)
 
-		self.SIcurves=curves
+	# 	self.SIcurves=curves
 
-	def fit_T1s(self,plotfit=0): # method to do the T1 fitting, set plotfit to 1 if plotting required
-		if not hasattr(self, 'T1curves'):
-			print('Extract the T1 curves first - patient.get_T1curves()')
+	def make_T1map(self): # method to do T1 fitting
+		if not hasattr(self, 'T1data'):
+			print('Read the T1 data first - patient.read_T1data()')
 			return
 		TIs=self.T1info['TIs'][0]
-		TR=self.T1info['TR']
-		n=self.T1info['n']
-		flip=self.T1info['FlipAngle']
+		TR=self.T1info['TR'][0]
+		N=self.T1info['N'][0]
+		flip=self.T1info['FlipAngle'][0]
+		sequenceparams=(flip,np.ceil(N/2),TR,N,4000)
+		
+		map=np.zeros(self.dynmask.shape)
+		#self.T1map=np.zeros(self.dynmask.shape)
 
-		for i in range(0,self.T1curves.shape[1]):
-			data=self.T1curves[:,i]
-			fit=SRTurboFLASH.fittingfun(TIs,TR,flip,n,data)
-			if plotfit==1:
-				plt.plot(TIs,data,'x')
-				plt.plot(TIs,SRTurboFLASH.SIeqn(fit.x,TIs,TR,flip,n))
-			self.rois['T1'][i]=fit.x[0]
+		data=np.zeros((self.dynmask.shape+(1,)))
+		data[:,:,:,0]=self.dynmask
+		data=np.tile(data,(1,1,1,5))
+		data=self.T1data*data
+
+		for sl in range(self.T1data.shape[2]): #for each slice
+			print(sl)
+			if np.sum(self.dynmask[:,:,sl])!=0: #if there are pixels in the slice
+				for i in range(self.T1data.shape[0]):
+					for j in range(self.T1data.shape[1]):
+						curve=np.squeeze(data[i,j,sl,:])
+						if np.sum(curve)!=0:
+							curve=curve/np.amax(curve)
+							fit=IRTurboFLASH.fittingfun(TIs,sequenceparams,curve)
+							map[i,j,sl]=fit.x[0]
+		# Save the map
+		np.save(os.path.join(self.patientdirect,'Analysis','T1map.npy'),map)
+		self.T1map=map
+
+	def load_T1map(self):
+		#method to load previously made dynamic mask
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','T1map.npy')):
+			print('No T1 map saved')
+			return
+		else:
+			self.T1map=np.load(os.path.join(self.patientdirect,'Analysis','T1map.npy'))
 
 	def SIconvert(self, baselinepts=10): 
 		#Check we have rois and T1s
@@ -378,6 +506,8 @@ class patient(object): # patient inherits from the object class
 
 	def fit_TH(self):
 		pass
+
+
 
 
 	# # Export methods

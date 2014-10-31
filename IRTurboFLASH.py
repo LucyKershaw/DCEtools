@@ -35,13 +35,14 @@ def SIeqn(paramsin,TIs,sequenceparams):
 
 	firstfraction=-1*(((D*E)+1)/(1+(B*D)))
 
-	SI=np.fabs((M0*np.sin(radflip)*((firstfraction*(np.exp(-1*TIscorr/T1)*a**(n-1))+((1-np.exp(-1*TIscorr/T1)*a**(n-1))+(b*(1-a**(n-1))/(1-a)))))))
+	#SI=np.fabs((M0*np.sin(radflip)*((firstfraction*(np.exp(-1*TIscorr/T1)*(a**(n-1))+((1-np.exp(-1*TIscorr/T1)*(a**(n-1))+(b*(1-(a**(n-1))/(1-a)))))))
+	SI=np.fabs((M0*np.sin(radflip))*((firstfraction*np.exp(-1*TIscorr/T1)*a**(n-1))+((1-np.exp(-1*TIscorr/T1))*a**(n-1))+(b*(1-a**(n-1))/(1-a))))
 	return SI
 
 def fittingfun(TIs,sequenceparams,data):
-	startguess=[1000,1500]
-	bnds=((0,3000),(0,1000000)) # Set upper and lower bounds for parameters
-	fit=scipy.optimize.minimize(objfun,startguess,args=(TIs,sequenceparams,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':True,'eps':1e-10,'maxiter':1000})
+	startguess=[1000,10]
+	bnds=((0,3000),(0,10000)) # Set upper and lower bounds for parameters
+	fit=scipy.optimize.minimize(objfun,startguess,args=(TIs,sequenceparams,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'eps':1e-10,'maxiter':1000})
 	return fit
 
 

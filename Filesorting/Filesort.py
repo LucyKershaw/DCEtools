@@ -50,6 +50,9 @@ def Filesort_Philips(direct):
 	# Sort into folders for each series
 	sort_series(direct)
 
+	# Add an Analysis folder in the main patient directory
+	os.mkdir(os.path.join(os.path.split(direct)[0],'Analysis'))
+
 def Filesort_Siemens():
 	import dicom
 	import glob
