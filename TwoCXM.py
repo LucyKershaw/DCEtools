@@ -110,7 +110,7 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0),bounds=bnds, method='nelder-mead',options={'ftol':1e-9,'disp':False,'maxiter':1000})
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
 
     #print(resultsmatrix)
@@ -153,7 +153,7 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'eps':1e-14,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='bfgs',options={'ftol':1e-09,'disp':False,'eps':1e-14,'maxiter':1000})
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
     
     #print(resultsmatrix)
