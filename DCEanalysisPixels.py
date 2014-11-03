@@ -201,8 +201,7 @@ class patient(object): # patient inherits from the object class
 				if temp.Manufacturer=='Philips Medical Systems':
 					ss=float(info[0x2005,0x100e].value) #extract the scale slope
 					si=float(info[0x2005,0x100d].value) #extract the scale intercept
-					print(ss)
-					print(si)
+
 				T1ims[:,:,z,y]=(temp.pixel_array-si)/ss
 
 		print("T1 measurement image array size is "+str(T1ims.shape))
@@ -407,37 +406,37 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.T1map=np.load(os.path.join(self.patientdirect,'Analysis','T1map.npy'))
 
-	def SIconvert(self, baselinepts=10): 
-		#Check we have rois and T1s
-		if not hasattr(self,'rois'):
-			print('Read in rois first - patient.read_rois()')
-			return
-		if sum(self.rois['T1'])==0:
-			print('fit T1 first - patient.fit_T1s()')
-			return
-		# Convert flip angle to radians
-		rflip=self.dyninfo['FlipAngle']*np.pi/180
-		#extract TR
-		TR=self.dyninfo['TR']/1000
-		Conccurves=np.zeros(self.SIcurves.shape)
+	# def SIconvert(self, baselinepts=10): 
+	# 	#Check we have rois and T1s
+	# 	if not hasattr(self,'rois'):
+	# 		print('Read in rois first - patient.read_rois()')
+	# 		return
+	# 	if sum(self.rois['T1'])==0:
+	# 		print('fit T1 first - patient.fit_T1s()')
+	# 		return
+	# 	# Convert flip angle to radians
+	# 	rflip=self.dyninfo['FlipAngle']*np.pi/180
+	# 	#extract TR
+	# 	TR=self.dyninfo['TR']/1000
+	# 	Conccurves=np.zeros(self.SIcurves.shape)
 
-		for i in range(0,len(self.rois)):
-			SIcurve=self.SIcurves[:,i]
-			T1base=self.rois['T1'][i]
-			# Convert T1 to R1 in s^-1
-			R1base=1/(T1base/1000)
-			print(R1base)
-			# extract baseline SI and calculate M0
-			base=np.mean(SIcurve[0:baselinepts])
-			print(base)
-			M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
-			print(M0)
-			# Now calculate the R1 curve
-			R1=np.log(((M0*np.sin(rflip))-SIcurve)/(M0*np.sin(rflip)-(SIcurve*np.cos(rflip))))*(-1/TR)
-			# And finally the delta R1 curve
-			Conccurves[:,i]=R1-R1base
+	# 	for i in range(0,len(self.rois)):
+	# 		SIcurve=self.SIcurves[:,i]
+	# 		T1base=self.rois['T1'][i]
+	# 		# Convert T1 to R1 in s^-1
+	# 		R1base=1/(T1base/1000)
+	# 		print(R1base)
+	# 		# extract baseline SI and calculate M0
+	# 		base=np.mean(SIcurve[0:baselinepts])
+	# 		print(base)
+	# 		M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
+	# 		print(M0)
+	# 		# Now calculate the R1 curve
+	# 		R1=np.log(((M0*np.sin(rflip))-SIcurve)/(M0*np.sin(rflip)-(SIcurve*np.cos(rflip))))*(-1/TR)
+	# 		# And finally the delta R1 curve
+	# 		Conccurves[:,i]=R1-R1base
 
-		self.Conccurves=Conccurves
+	# 	self.Conccurves=Conccurves
 
 	# def preprocess(self):
 	# 	# function to extract and fit T1 curves, extract SI curves and convert
@@ -469,24 +468,35 @@ class patient(object): # patient inherits from the object class
 			print('No mask available')
 			return
 
-		TwoCXMfitConc=np.zeros()
-		TwoCXMfitSI=np.zeros()
+		self.TwoCXMfitConc=np.zeros((self.dynmask.shape+(6,)))
+		self.TwoCXMfitSI=np.zeros((self.dynmask.shape+(6,)))
+		
+		TR=self.dyninfo['TR']/1000
+		flip=self.dyninfo['FlipAngle']
+		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
 		
 		if SIflag==1:
-				TR=self.dyninfo['TR']/1000
-				flip=self.dyninfo['FlipAngle']
+			for sl in range(self.dynims.shape[2]):
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								uptake=np.squeeze(self.dynims[i,j,sl,:])
+								T1base=self.T1map[i,j,sl]
+								fit=TwoCXM.TwoCXMfittingSI(self.t, self.AIF/0.6, uptake, None, 20, TR, flip, T1base/1000)
+								print(fit)
+								self.TwoCXMfitSI[i,j,sl,:]=fit
 
-			for i in range(0,len(self.rois)):
-				uptake=self.SIcurves[:,i]
-				T1base=self.rois['T1'][i]
-				TwoCXMfitSI[:,i]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
-				self.TwoCXMfitSI=TwoCXMfitSI
 
 		else:
-			for i in range(0,len(self.rois)):
-				uptake=self.Conccurves[:,i]
-				TwoCXMfitConc[:,i]=TwoCXM.TwoCXMfittingConc(self.t,self.AIF,uptake,None) # Fit the 2CXM to the dynamic curve
-				self.TwoCXMfitConc=TwoCXMfitConc
+			for sl in range(self.dynims.shape[2]):
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								uptake=np.squeeze(self.dynims[i,j,sl,:])
+								uptakeConc=FLASH.SI2Conc(uptake,TR,flip,self.T1map[i,j,sl]/1000,15,None)
+								if np.isnan(np.sum(uptakeConc))==0:
+									TwoCXMfitConc=TwoCXM.TwoCXMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
+									self.TwoCXMfitConc[i,j,sl,:]=TwoCXMfitConc
 
 
 	def fit_AATH(self,SIflag):

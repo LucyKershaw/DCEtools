@@ -11,7 +11,7 @@ def TwoCXM(params,t,AIF, toff):
     # Note when evaluating the model during fitting this shift has already been done
     if toff is not None:
         tnew = t - toff
-        f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
+        f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
         AIF = (t>=toff)*f(t-toff)
 
     # Assign the parameters to more meaningful names
@@ -50,7 +50,7 @@ def Kety(params,t,AIF):
 
     # Shift the AIF by the amount toff
     tnew = t - toff
-    f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
+    f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
     AIFnew = (t>toff)*f(t-toff)
 
     imp=ve*np.exp(-1*Ktrans*t/ve); # Calculate the impulse response function
@@ -73,22 +73,23 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     rflip=flip*np.pi/180
     R1base=1/T1base
     base=np.mean(uptake[0:baselinepts])
-    print(base)
+    #print(base)
     M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
-    print(M0)
+    #print(M0)
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp
-    plt.figure()
+    #plt.figure()
 
     if toff is None:
         firstthird=np.round(len(t)/3)
-        Ketystart=[0.5,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
-        Ketybnds=((0,999),(0,2),(1E-05,1))
+        Ketystart=[0.05,0.1,t[1]] # set starting guesses for Ktrans, ve, toff
+        Ketybnds=((1E-05,100),(1E-05,1),(1E-05,50))
         Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP')
         toff=Ketyresult.x[2]
-        print(Ketyresult)
+        print(Ketyresult.x)
         concdata=Kety(Ketyresult.x,t,AIF)
-        plt.plot(t,FLASH.Conc2SI(concdata,TR,flip,T1base,M0),'b')
+        #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
+        #plt.plot(t,AIF)
 
     if toff==0:
         AIFnew=AIF
@@ -98,14 +99,14 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
         tnew = t - toff
         f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
         AIFnew = (t>=toff)*f(t-toff)
+        #plt.plot(t,AIFnew)
 
     # Fit the TwoCXM model, stepping through vp
-    vpmatrix=np.arange(0.01,1,0.01)
-    #vpmatrix=np.array([0.4])    
+    vpmatrix=np.arange(0.01,1,0.01)   
     
     # Parameters to fit are E, Fp, ve
     startguess=[0.1,0.1,0.1]  # Set starting guesses
-    bnds=((1e-5,1),(1e-05,10),(1e-05,1)) # Set upper and lower bounds for parameters
+    bnds=((1e-5,1),(1e-05,10),(1e-05,3)) # Set upper and lower bounds for parameters
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
@@ -116,10 +117,8 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     bestindex=np.nanargmin(resultsmatrix[:,4])
     bestresult=resultsmatrix[bestindex,:]
 
-    #plt.plot(resultsmatrix[:,4])
-    #plt.figure()
-    plt.plot(t,uptake,'x')
-    plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
+   # plt.plot(t,uptake,'x')
+    #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
 
     return bestresult
 
@@ -130,20 +129,20 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
     import matplotlib.pyplot as plt
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp from the first third of the curve
-    plt.figure()
+    #plt.figure()
 
     firstthird=np.round(len(t)/3)
     if toff is None:
-        Ketystart=[0.5,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
-        Ketybnds=((0,999),(0,2),(1E-5,1))
+        Ketystart=[0.05,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
+        Ketybnds=((1E-05,100),(1E-05,2),(1E-5,50))
         Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP')
         toff=Ketyresult.x[2]
-        plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
-        print(Ketyresult)
+        #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
+        print(Ketyresult.x)
     
     # Shift the AIF by the amount toff
     tnew = t - toff
-    f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
+    f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
     AIFnew = (t>=toff)*f(t-toff)
 
     # Fit the TwoCXM model, stepping through vp
@@ -161,10 +160,8 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
     bestindex=np.nanargmin(resultsmatrix[:,4])
     bestresult=resultsmatrix[bestindex,:]
     print(bestresult)
-    #plt.plot(resultsmatrix[:,4])
-    #plt.figure()
-    plt.plot(t,uptake,'x')
-    plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff))
+    #plt.plot(t,uptake,'x')
+    #plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff))
     
     return bestresult
 
@@ -173,12 +170,12 @@ def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):
     import FLASH
     concdata=Kety(paramsin,t,AIF)
     temp=data-FLASH.Conc2SI(concdata,TR,flip,T1base,M0)
-    return np.sqrt(sum(temp**2))
+    return np.sqrt(np.sum(temp**2))
 
 def KetyobjfunConc(paramsin,t,AIF,data):
     import numpy as np
     temp=data-Kety(paramsin,t,AIF)
-    return np.sqrt(sum(temp**2))
+    return np.sqrt(np.sum(temp**2))
 
 def objfun(paramsin,vp,t,AIF,data,TR,flip,T1base,M0):
     import numpy as np
@@ -186,11 +183,11 @@ def objfun(paramsin,vp,t,AIF,data,TR,flip,T1base,M0):
     allparams=np.concatenate((paramsin,vp))
     concdata=TwoCXM(allparams,t,AIF,None)
     temp=data-FLASH.Conc2SI(concdata,TR,flip,T1base,M0)
-    return np.sqrt(sum(temp**2))
+    return np.sqrt(np.sum(temp**2))
     
 def objfunConc(paramsin,vp,t,AIF,data):
     import numpy as np
     allparams=np.concatenate((paramsin,vp))
     temp=data-TwoCXM(allparams,t,AIF,None)
-    return np.sqrt(sum(temp**2))
+    return np.sqrt(np.sum(temp**2))
 
