@@ -439,12 +439,12 @@ class patient(object): # patient inherits from the object class
 
 		self.Conccurves=Conccurves
 
-	def preprocess(self):
-		# function to extract and fit T1 curves, extract SI curves and convert
-		self.get_T1curves()
-		self.get_SIcurves()
-		self.fit_T1s()
-		self.SIconvert()
+	# def preprocess(self):
+	# 	# function to extract and fit T1 curves, extract SI curves and convert
+	# 	self.get_T1curves()
+	# 	self.get_SIcurves()
+	# 	self.fit_T1s()
+	# 	self.SIconvert()
 
 	# Fitting
 	#####################################################
@@ -458,16 +458,26 @@ class patient(object): # patient inherits from the object class
 		# To fit SI, set SIflag to 1
 		# check for an AIF
 		if not hasattr(self,'AIF'):
-			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
+			print('No AIF available')
 			return
-		TwoCXMfitConc=np.zeros([6,len(self.rois)])
-		TwoCXMfitSI=np.zeros([6,len(self.rois)])
+
+		if not hasattr(self,'T1map'):
+			print('No T1map available')
+			return
+
+		if not hasattr(self,'dynmask'):
+			print('No mask available')
+			return
+
+		TwoCXMfitConc=np.zeros()
+		TwoCXMfitSI=np.zeros()
 		
 		if SIflag==1:
-			for i in range(0,len(self.rois)):
-				uptake=self.SIcurves[:,i]
 				TR=self.dyninfo['TR']/1000
 				flip=self.dyninfo['FlipAngle']
+
+			for i in range(0,len(self.rois)):
+				uptake=self.SIcurves[:,i]
 				T1base=self.rois['T1'][i]
 				TwoCXMfitSI[:,i]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
 				self.TwoCXMfitSI=TwoCXMfitSI
@@ -508,24 +518,6 @@ class patient(object): # patient inherits from the object class
 		pass
 
 
-
-
-	# # Export methods
-	# #####################################################
-	# def export_fits(self,exportfilename):
-	# 	# Remember to add the full path for the results
-		
-
-
-
-	# 	# Create the file if not already there
-	# 	if not os.isfile(exportfilename):
-	# 		f=open(exportfilename,'x')
-	# 		f.close
-	# 	else:
-	# 		with open(exportfilename,'a') as csvfile:
- #    		writefile=csv.writer(csvfile)
- #    		writefile.writerow(squeeze(P42.AATHfitSI))
 
 
 
