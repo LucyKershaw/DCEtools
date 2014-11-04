@@ -19,7 +19,8 @@ def AATH(params,t,AIF, toff):
     Tc=vp/Fp
     #Calculate the IRF
     R=E*Fp*np.exp(-1*E*Fp*(t-Tc)/ve)
-    R[0:(np.round(Tc/t[1]))]=Fp
+    if np.round(Tc/t[1])!=0:
+        R[0:(np.round(Tc/t[1]))]=Fp
     #Calculate the convolution
     temp=np.convolve(AIF,R)*t[1]
 
@@ -124,8 +125,8 @@ def AATHfittingConc(t, AIF, uptake, toff):
 
     firstthird=np.round(len(t)/3)
     if toff is None:
-        Ketystart=[0.5,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
-        Ketybnds=((0,999),(0,2),(1E-5,1))
+        Ketystart=[0.05,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
+        Ketybnds=((1E-05,999),(1E-05,2),(1E-5,1))
         Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP')
         toff=Ketyresult.x[2]
         plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
@@ -133,7 +134,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
     
     # Shift the AIF by the amount toff
     tnew = t - toff
-    f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
+    f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
     AIFnew = (t>=toff)*f(t-toff)
 
     # Fit the AATH model, stepping through vp

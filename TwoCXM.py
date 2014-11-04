@@ -53,7 +53,7 @@ def Kety(params,t,AIF):
     f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
     AIFnew = (t>toff)*f(t-toff)
 
-    imp=ve*np.exp(-1*Ktrans*t/ve); # Calculate the impulse response function
+    imp=Ktrans*np.exp(-1*Ktrans*t/ve); # Calculate the impulse response function
     convolution=np.convolve(AIFnew,imp) # Convolve impulse response with AIF
     G=convolution[0:len(t)]*t[1]
     return G
@@ -62,65 +62,65 @@ def Kety(params,t,AIF):
 # Function to fit the TwoCXM model using scipy.optimize  
 # Note that AIF is PLASMA
 
-def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
-    import numpy as np
-    import scipy.optimize 
-    import scipy.interpolate
-    import matplotlib.pyplot as plt 
-    import FLASH
+# def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
+#     import numpy as np
+#     import scipy.optimize 
+#     import scipy.interpolate
+#     import matplotlib.pyplot as plt 
+#     import FLASH
 
-    #calculate M0 to use in conversion
-    rflip=flip*np.pi/180
-    R1base=1/T1base
-    base=np.mean(uptake[0:baselinepts])
-    #print(base)
-    M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
-    #print(M0)
+#     #calculate M0 to use in conversion
+#     rflip=flip*np.pi/180
+#     R1base=1/T1base
+#     base=np.mean(uptake[0:baselinepts])
+#     #print(base)
+#     M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
+#     #print(M0)
 
-    # If toff is set to None, rather than a number, calculate it using Tofts without vp
-    #plt.figure()
+#     # If toff is set to None, rather than a number, calculate it using Tofts without vp
+#     #plt.figure()
 
-    if toff is None:
-        firstthird=np.round(len(t)/3)
-        Ketystart=[0.05,0.1,t[1]] # set starting guesses for Ktrans, ve, toff
-        Ketybnds=((1E-05,100),(1E-05,1),(1E-05,50))
-        Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP')
-        toff=Ketyresult.x[2]
-        print(Ketyresult.x)
-        concdata=Kety(Ketyresult.x,t,AIF)
-        #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
-        #plt.plot(t,AIF)
+#     if toff is None:
+#         firstthird=np.round(len(t)/3)
+#         Ketystart=[0.05,0.1,t[1]] # set starting guesses for Ktrans, ve, toff
+#         Ketybnds=((1E-05,100),(1E-05,1),(1E-05,50))
+#         Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP')
+#         toff=Ketyresult.x[2]
+#         print(Ketyresult.x)
+#         concdata=Kety(Ketyresult.x,t,AIF)
+#         #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
+#         #plt.plot(t,AIF)
 
-    if toff==0:
-        AIFnew=AIF
+#     if toff==0:
+#         AIFnew=AIF
 
-    else:
-        # Shift the AIF by the amount toff
-        tnew = t - toff
-        f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
-        AIFnew = (t>=toff)*f(t-toff)
-        #plt.plot(t,AIFnew)
+#     else:
+#         # Shift the AIF by the amount toff
+#         tnew = t - toff
+#         f=scipy.interpolate.interp1d(t,AIF,kind='cubic',bounds_error=False,fill_value=0)
+#         AIFnew = (t>=toff)*f(t-toff)
+#         #plt.plot(t,AIFnew)
 
-    # Fit the TwoCXM model, stepping through vp
-    vpmatrix=np.arange(0.01,1,0.01)   
+#     # Fit the TwoCXM model, stepping through vp
+#     vpmatrix=np.arange(0.01,1,0.01)   
     
-    # Parameters to fit are E, Fp, ve
-    startguess=[0.1,0.1,0.1]  # Set starting guesses
-    bnds=((1e-5,1),(1e-05,10),(1e-05,3)) # Set upper and lower bounds for parameters
-    resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
+#     # Parameters to fit are E, Fp, ve
+#     startguess=[0.1,0.1,0.1]  # Set starting guesses
+#     bnds=((1e-5,1),(1e-05,10),(1e-05,3)) # Set upper and lower bounds for parameters
+#     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
-    for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0),bounds=bnds, method='nelder-mead',options={'ftol':1e-9,'disp':False,'maxiter':1000})
-        resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
+#     for i in range (0,len(vpmatrix)):
+#         Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'maxiter':1000})
+#         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
 
-    #print(resultsmatrix)
-    bestindex=np.nanargmin(resultsmatrix[:,4])
-    bestresult=resultsmatrix[bestindex,:]
+#     #print(resultsmatrix)
+#     bestindex=np.nanargmin(resultsmatrix[:,4])
+#     bestresult=resultsmatrix[bestindex,:]
 
-   # plt.plot(t,uptake,'x')
-    #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
+#     #plt.plot(t,uptake,'x')
+#     #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
 
-    return bestresult
+#     return bestresult
 
 def TwoCXMfittingConc(t, AIF, uptake, toff):
     import numpy as np
@@ -133,11 +133,12 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
 
     firstthird=np.round(len(t)/3)
     if toff is None:
-        Ketystart=[0.05,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
-        Ketybnds=((1E-05,100),(1E-05,2),(1E-5,50))
-        Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP')
+        #Ketystart=np.array((0.01,0.1,t[1])) # set starting guesses for Ktrans, ve, toff
+        Ketystart=[0.05,0.5,t[1]]
+        Ketybnds=((0,100),(0,2),(0,50))
+        Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP',options={'disp':True})
         toff=Ketyresult.x[2]
-        #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
+        plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
         print(Ketyresult.x)
     
     # Shift the AIF by the amount toff
@@ -148,12 +149,13 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
     # Fit the TwoCXM model, stepping through vp
     vpmatrix=np.arange(0.01,1,0.01) #was 0.01 start
     # Parameters to fit are E, Fp, ve
-    startguess=[0.5,0.5,0.5]  # Set starting guesses
-    bnds=((1e-5,1),(1e-5,10),(1e-5,3)) # Set upper and lower bounds for parameters
+    startguess=np.array((0.1,0.5,0.5))  # Set starting guesses
+    bnds=((0,1),(0,10),(0,3)) # Set upper and lower bounds for parameters
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='bfgs',options={'ftol':1e-09,'disp':False,'eps':1e-14,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='TNC',options={'ftol':1e-14,'disp':False,'eps':1e-09,'maxiter':1000})
+        #print(Result.success)
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
     
     #print(resultsmatrix)

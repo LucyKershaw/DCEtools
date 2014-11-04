@@ -492,8 +492,8 @@ class patient(object): # patient inherits from the object class
 					for i in range(self.dynims.shape[0]):
 						for j in range(0,self.dynims.shape[1]):
 							if self.dynmask[i,j,sl]==1:
-								uptake=np.squeeze(self.dynims[i,j,sl,:])
-								uptakeConc=FLASH.SI2Conc(uptake,TR,flip,self.T1map[i,j,sl]/1000,15,None)
+								#uptake=np.squeeze(self.dynims[i,j,sl,:])
+								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								if np.isnan(np.sum(uptakeConc))==0:
 									TwoCXMfitConc=TwoCXM.TwoCXMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
 									self.TwoCXMfitConc[i,j,sl,:]=TwoCXMfitConc
