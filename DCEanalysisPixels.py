@@ -494,6 +494,7 @@ class patient(object): # patient inherits from the object class
 							if self.dynmask[i,j,sl]==1:
 								#uptake=np.squeeze(self.dynims[i,j,sl,:])
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
+								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
 									TwoCXMfitConc=TwoCXM.TwoCXMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
 									self.TwoCXMfitConc[i,j,sl,:]=TwoCXMfitConc
@@ -505,23 +506,35 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'AIF'):
 			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
 			return
-		AATHfitConc=np.zeros([6,len(self.rois)])
-		AATHfitSI=np.zeros([6,len(self.rois)])
-		
+		self.AATHfitConc=np.zeros((self.dynmask.shape+(6,)))
+		self.AATHfitSI=np.zeros((self.dynmask.shape+(6,)))
+
+		TR=self.dyninfo['TR']/1000
+		flip=self.dyninfo['FlipAngle']
+		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+
 		if SIflag==1:
-			for i in range(0,len(self.rois)):
-				uptake=self.SIcurves[:,i]
-				TR=self.dyninfo['TR']/1000
-				flip=self.dyninfo['FlipAngle']
-				T1base=self.rois['T1'][i]
-				AATHfitSI[:,i]=AATH.AATHfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
-				self.AATHfitSI=AATHfitSI
+			for sl in range(self.dynims.shape[2]):
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								uptake=np.squeeze(self.dynims[i,j,sl,:])
+								T1base=self.T1map[i,j,sl]
+								fit=AATH.AATHfittingSI(self.t, self.AIF/0.6, uptake, None, 20, TR, flip, T1base/1000)
+								print(fit)
+								self.AATHfitSI[i,j,sl,:]=fit
 
 		else:
-			for i in range(0,len(self.rois)):
-				uptake=self.Conccurves[:,i]
-				AATHfitConc[:,i]=AATH.AATHfittingConc(self.t,self.AIF,uptake,None) # Fit the 2CXM to the dynamic curve
-				self.AATHfitConc=AATHfitConc
+			for sl in range(self.dynims.shape[2]):
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								#uptake=np.squeeze(self.dynims[i,j,sl,:])
+								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
+								print(i,j,sl)
+								if np.isnan(np.sum(uptakeConc))==0:
+									AATHfitConc=AATH.AATHfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
+									self.AATHfitConc[i,j,sl,:]=AATHfitConc
 
 
 	def fit_TH(self):
