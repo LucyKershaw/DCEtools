@@ -137,8 +137,11 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
         Ketystart=[0.05,0.5,t[1]]
         Ketybnds=((0,100),(0,2),(0,50))
         Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP',options={'disp':True})
-        toff=Ketyresult.x[2]
-        plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
+        toff=0
+        if not np.isnan(Ketyresult.x[2]):
+            toff=Ketyresult.x[2]
+            
+       #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
         print(Ketyresult.x)
     
     # Shift the AIF by the amount toff
@@ -154,7 +157,7 @@ def TwoCXMfittingConc(t, AIF, uptake, toff):
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='TNC',options={'ftol':1e-14,'disp':False,'eps':1e-09,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'eps':1e-09,'maxiter':1000})
         #print(Result.success)
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
     
