@@ -138,13 +138,13 @@ def AATHfittingConc(t, AIF, uptake, toff):
     if toff is None:
         Ketystart=[0.05,0.5,t[1]] # set starting guesses for Ktrans, ve, toff
         Ketybnds=((0.00001,999),(0.00001,2),(0.00001,20))
-        Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='TNC')
+        Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP')
         toff=0
         if not np.isnan(Ketyresult.x[2]):
             toff=Ketyresult.x[2]
         #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
         #print(Ketyresult.x)
-        print(Ketyresult.success)
+        print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
     
     # Shift the AIF by the amount toff
     tnew = t - toff
@@ -159,7 +159,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='TNC',options={'ftol':1e-14,'disp':False,'eps':1e-14,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-6,'disp':False,'eps':1e-14,'maxiter':1000})
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
     
     #print(resultsmatrix)
