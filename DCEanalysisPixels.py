@@ -500,8 +500,9 @@ class patient(object): # patient inherits from the object class
 									self.TwoCXMfitConc[i,j,sl,:]=TwoCXMfitConc
 
 
-	def fit_AATH(self,SIflag):
+	def fit_AATH(self,SIflag,save):
 		# To fit SI, set SIflag to 1
+		# To save the maps as a numpy array, set save to 1 
 		# check for an AIF
 		if not hasattr(self,'AIF'):
 			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
@@ -535,6 +536,19 @@ class patient(object): # patient inherits from the object class
 								if np.isnan(np.sum(uptakeConc))==0:
 									AATHfitConc=AATH.AATHfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
 									self.AATHfitConc[i,j,sl,:]=AATHfitConc
+
+		if save==1:
+			np.save(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'),self.AATHfitConc)
+
+
+	def load_AATHConcparammaps(self):
+		#Method to load maps from numpy arrays
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy')):
+			print('No AATH maps saved')
+			return
+		else:
+			self.AATHfitConc=np.load(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'))
+
 
 
 	def fit_TH(self):

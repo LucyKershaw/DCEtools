@@ -29,7 +29,7 @@ def AATH(params,t,AIF, toff):
     #Calculate the convolution
     temp=np.convolve(AIF,R)*t[1]
 
-    F=Fp*temp[0:len(t)]
+    F=temp[0:len(t)]
     # plt.plot(AIF)
     # plt.plot(temp)
     # plt.plot(F)
@@ -159,7 +159,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-6,'disp':False,'eps':1e-14,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'eps':1e-14,'maxiter':1000})
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
     
     #print(resultsmatrix)
