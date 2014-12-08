@@ -453,7 +453,7 @@ class patient(object): # patient inherits from the object class
 	def fit_ExtTofts(self):
 		pass
 
-	def fit_2CXM(self,SIflag):
+	def fit_2CXM(self,SIflag,save):
 		# To fit SI, set SIflag to 1
 		# check for an AIF
 		if not hasattr(self,'AIF'):
@@ -468,37 +468,41 @@ class patient(object): # patient inherits from the object class
 			print('No mask available')
 			return
 
-		self.TwoCXMfitConc=np.zeros((self.dynmask.shape+(6,)))
-		self.TwoCXMfitSI=np.zeros((self.dynmask.shape+(6,)))
+		self.TwoCXMfitConc=np.zeros((self.dynmask.shape+(7,)))
+		self.TwoCXMfitSI=np.zeros((self.dynmask.shape+(7,)))
 		
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
 		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
-		
+
 		if SIflag==1:
 			for sl in range(self.dynims.shape[2]):
-					for i in range(self.dynims.shape[0]):
-						for j in range(0,self.dynims.shape[1]):
-							if self.dynmask[i,j,sl]==1:
-								uptake=np.squeeze(self.dynims[i,j,sl,:])
-								T1base=self.T1map[i,j,sl]
-								fit=TwoCXM.TwoCXMfittingSI(self.t, self.AIF/0.6, uptake, None, 20, TR, flip, T1base/1000)
-								print(fit)
-								self.TwoCXMfitSI[i,j,sl,:]=fit
-
+				count=0
+				total=np.sum(self.dynmask[:,:,sl])
+				for i in range(self.dynims.shape[0]):
+					for j in range(0,self.dynims.shape[1]):
+						if self.dynmask[i,j,sl]==1:
+							count=count+1
+							print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
+							uptake=np.squeeze(self.dynims[i,j,sl,:])
+							T1base=self.T1map[i,j,sl]
+							fit=TwoCXM.TwoCXMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
+							self.TwoCXMfitSI[i,j,sl,:]=fit
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy'),self.TwoCXMfitSI)
 
 		else:
 			for sl in range(self.dynims.shape[2]):
 					for i in range(self.dynims.shape[0]):
 						for j in range(0,self.dynims.shape[1]):
 							if self.dynmask[i,j,sl]==1:
-								#uptake=np.squeeze(self.dynims[i,j,sl,:])
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
 									TwoCXMfitConc=TwoCXM.TwoCXMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
 									self.TwoCXMfitConc[i,j,sl,:]=TwoCXMfitConc
-
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitConcmaps.npy'),self.TwoCXMfitConc)
 
 	def fit_AATH(self,SIflag,save):
 		# To fit SI, set SIflag to 1
@@ -516,13 +520,16 @@ class patient(object): # patient inherits from the object class
 
 		if SIflag==1:
 			for sl in range(self.dynims.shape[2]):
+					count=0
+					total=np.sum(self.dynmask[:,:,sl])
 					for i in range(self.dynims.shape[0]):
 						for j in range(0,self.dynims.shape[1]):
 							if self.dynmask[i,j,sl]==1:
+								count=count+1
+								print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
 								uptake=np.squeeze(self.dynims[i,j,sl,:])
 								T1base=self.T1map[i,j,sl]
-								fit=AATH.AATHfittingSI(self.t, self.AIF/0.6, uptake, None, 20, TR, flip, T1base/1000)
-								print(fit)
+								fit=AATH.AATHfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000)
 								self.AATHfitSI[i,j,sl,:]=fit
 
 		else:
@@ -530,7 +537,6 @@ class patient(object): # patient inherits from the object class
 					for i in range(self.dynims.shape[0]):
 						for j in range(0,self.dynims.shape[1]):
 							if self.dynmask[i,j,sl]==1:
-								#uptake=np.squeeze(self.dynims[i,j,sl,:])
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
@@ -549,7 +555,13 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.AATHfitConc=np.load(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'))
 
-
+	def load_TwoCXMSIparammaps(self):
+		#Method to load maps from numpy arrays
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy')):
+			print('No TwoCXM maps saved')
+			return
+		else:
+			self.TwoCXMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy'))
 
 	def fit_TH(self):
 		pass

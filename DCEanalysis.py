@@ -6,11 +6,7 @@ import dicom
 import matplotlib.pyplot as plt
 import os
 import glob
-<<<<<<< HEAD
 import csv
-=======
-
->>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
 import PIL
 import scipy.misc
 import SRTurboFLASH
@@ -21,21 +17,20 @@ import FLASH
 
 class patient(object): # patient inherits from the object class
 	
-	def __init__(self,studynumber,patientnumber,visitnumber,visitdate,hct=0.42): # set the patient number, visit number and hct for these data
-<<<<<<< HEAD
-		self.studyrootdirect=os.path.normpath("E:/HeadAndNeck/HeadNeckNewPts/Patients/") # this will be head and neck data
+	def __init__(self,studynumber,visitnumber,visitdate,hct=0.42): # set the patient number, visit number and hct for these data
+		self.studyrootdirect=os.path.normpath("P:/Physics/Non-Ionising Imaging/Magnetic Resonance/MRI2/DCE-MRI projects/Bladder/New bladder study/Patients/")
 		#self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
-=======
 		#self.studyrootdirect=os.path.normpath("E:/HeadAndNeck/HeadNeckNewPts/Patients/") # this will be head and neck data
-		self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
->>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
+		#self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
 		self.hct=hct
 		self.studynumber=studynumber
-		self.patientnumber=patientnumber
 		self.visitnumber=visitnumber
 		self.visitdate=visitdate
-		self.dicomdirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory
-		self.roidirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory
+		#self.dicomdirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory
+		self.dicomdirect=os.path.normpath(str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory
+		#self.roidirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory
+		self.roidirect=os.path.normpath(str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory
+
 		print("Patient "+str(studynumber)+" visit "+str(visitnumber)+" created.  Imaging data expected in:")
 		print(os.path.join(self.studyrootdirect,self.dicomdirect)+" Does this exist? "+str(os.path.isdir(os.path.join(self.studyrootdirect,self.dicomdirect)))) # Check these exist
 		print(os.path.join(self.studyrootdirect,self.roidirect)+" Does this exist? "+str(os.path.isdir(os.path.join(self.studyrootdirect,self.roidirect))))
@@ -68,8 +63,10 @@ class patient(object): # patient inherits from the object class
 	def read_T2w(self): #method to read the T2w image files
 		# change to dicom directory
 		os.chdir(os.path.join(self.studyrootdirect,self.dicomdirect))
-		# find .dcm files
-		filenames=glob.glob(os.path.normpath('T2-w hr/*.dcm'))
+		#find hires T2w directory
+		T2wdirect=glob.glob('*hr*')[0]
+		# find .dcm files in there
+		filenames=glob.glob(os.path.join(T2wdirect,'*.dcm'))
 		numfiles=len(filenames)
 		print("Reading "+str(numfiles)+" files")
 		# read the first file to find out size, and add pixel size info to T2winfo structure
@@ -93,7 +90,7 @@ class patient(object): # patient inherits from the object class
 		dyndirects=sorted(glob.glob('*'),key=int)
 		print("Found "+str(len(dyndirects))+" time point directories")
 		# in first directory, read in one slice to work out size and fill out info variables
-		dynfiles=glob.glob(dyndirects[0]+os.path.normpath("/*"))
+		dynfiles=glob.glob(dyndirects[0]+os.path.normpath("/*.dcm"))
 		info=dicom.read_file(dynfiles[0])
 		im=info.pixel_array
 		self.dyninfo=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('tres','f8')])
@@ -104,44 +101,89 @@ class patient(object): # patient inherits from the object class
 		dynims=np.zeros(np.array([im.shape[0],im.shape[1],len(dynfiles),len(dyndirects)]))
 		#For each directory, read files into the array
 		for i in range(0,len(dyndirects)):
-			dynfiles=glob.glob(dyndirects[i]+os.path.normpath("/*"))
+			#print(i)
+			dynfiles=glob.glob(dyndirects[i]+os.path.normpath("/*.dcm"))
 			for j in range(0,len(dynfiles)):
 				temp=dicom.read_file(dynfiles[j])
 				imnum=temp.InstanceNumber
+				if imnum>len(dynfiles): #test for the case where image numbers go sequentially through folders
+					imnum=imnum%len(dynfiles) #use modulo operator to reduce to a value between 1 and len(dynfiles) 
+					if imnum==0:
+						imnum=len(dynfiles) #unless the modulo operator gives zero, in which case this must be the last file
+				#print(i,j,imnum)
 				dynims[:,:,imnum-1,i]=temp.pixel_array
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
 	def read_T1data(self):
-		# change to SR directory
-		os.chdir(os.path.join(self.studyrootdirect,self.dicomdirect,"SR"))
-		# get the TI directory names, sorted correctly
-		TIdirects=glob.glob('*')
-		TIdirects.sort(key=lambda x: int(x[3:]))
-		print("Found these TI directories - ")
-		print(TIdirects)
-		# in the first directory, read in one file to check sizes
-		TIfiles=glob.glob(TIdirects[0]+os.path.normpath("/*"))
-		info=dicom.read_file(TIfiles[0])
-		im=info.pixel_array		
-		self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('TIs','f8',len(TIdirects)),('n','f8')])
-		self.T1info['pixelsize']=float(info.PixelSpacing[0])
-		#self.T1info['TR']=float(info.RepetitionTime)
-		self.T1info['TR']=float(4) #Echo spacing is 4 ms in HN data - check!
-		self.T1info['n']=float(5) #HN data - check! 
-		self.T1info['FlipAngle']=float(info.FlipAngle)
-		self.T1info['TIs']=np.array([float(item.split('=')[1]) for item in TIdirects])
+		# change to SR directory, if this is SR data
+		if os.path.isdir(os.path.join(self.studyrootdirect,self.dicomdirect,"SR")):
+			os.chdir(os.path.join(self.studyrootdirect,self.dicomdirect,"SR"))
+			# get the TI directory names, sorted correctly
+			TIdirects=glob.glob('*')
+			TIdirects.sort(key=lambda x: int(x[3:]))
+			print("Found these TI directories - ")
+			print(TIdirects)
+			# in the first directory, read in one file to check sizes
+			TIfiles=glob.glob(TIdirects[0]+os.path.normpath("/*.dcm"))
+			info=dicom.read_file(TIfiles[0])
+			im=info.pixel_array		
+			self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('TIs','f8',len(TIdirects)),('n','f8')])
+			self.T1info['pixelsize']=float(info.PixelSpacing[0])
+			#self.T1info['TR']=float(info.RepetitionTime)
+			self.T1info['TR']=float(4) #Echo spacing is 4 ms in HN data - check!
+			self.T1info['n']=float(5) #HN data - check! 
+			self.T1info['FlipAngle']=float(info.FlipAngle)
+			self.T1info['TIs']=np.array([float(item.split('=')[1]) for item in TIdirects])
 
-		SRims=np.zeros(np.array([im.shape[0],im.shape[1],len(TIfiles),len(TIdirects)]))
-		# for each TI directory, read files into the array
-		for i in range(0,len(TIdirects)):
-			TIfiles=glob.glob(TIdirects[i]+os.path.normpath("/*"))
-			for j in range(0,len(TIfiles)):
-				temp=dicom.read_file(TIfiles[j])
-				imnum=temp.InstanceNumber
-				SRims[:,:,imnum-1,i]=temp.pixel_array
-		print("T1 measurement image array size is "+str(SRims.shape))
-		self.T1data=SRims
+			SRims=np.zeros(np.array([im.shape[0],im.shape[1],len(TIfiles),len(TIdirects)]))
+			# for each TI directory, read files into the array
+			for i in range(0,len(TIdirects)):
+				TIfiles=glob.glob(TIdirects[i]+os.path.normpath("/*.dcm"))
+				for j in range(0,len(TIfiles)):
+					temp=dicom.read_file(TIfiles[j])
+					imnum=temp.InstanceNumber
+					SRims[:,:,imnum-1,i]=temp.pixel_array
+			print("T1 measurement image array size is "+str(SRims.shape))
+			self.T1data=SRims
+
+
+		#Or, if it's flip angle data.....
+		elif os.path.isdir(os.path.join(self.studyrootdirect,self.dicomdirect,'FlipAngles')):
+			os.chdir(os.path.join(self.studyrootdirect,self.dicomdirect,"FlipAngles"))
+			# get the flip angle directory names, sorted correctly
+			FAdirects=glob.glob('*')
+			print("Found these directories - ")
+			print(FAdirects)
+			# in the first directory, read in one file to check sizes
+			FAfiles=glob.glob(FAdirects[0]+os.path.normpath("/*.dcm"))
+			info=dicom.read_file(FAfiles[0])
+			im=info.pixel_array		
+			self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8',len(FAdirects))])
+			self.T1info['pixelsize']=float(info.PixelSpacing[0])
+			#self.T1info['TR']=float(info.RepetitionTime)
+			self.T1info['TR']=float(4)
+
+			FAims=np.zeros(np.array([im.shape[0],im.shape[1],len(FAfiles),len(FAdirects)]))
+			# for each Flip angle directory, read files into the array
+			for i in range(0,len(FAdirects)):
+				#print(FAdirects[i])
+				FAfiles=glob.glob(FAdirects[i]+os.path.normpath("/*.dcm"))
+				for j in range(0,len(FAfiles)):
+					temp=dicom.read_file(FAfiles[j])
+					#print(temp.FlipAngle)
+					imnum=temp.InstanceNumber
+					self.T1info['FlipAngle'][0][i]=temp.FlipAngle
+					#print(i)
+					#print(self.T1info['FlipAngle'])
+					FAims[:,:,imnum-1,i]=temp.pixel_array
+			print("T1 measurement image array size is "+str(FAims.shape))
+			self.T1data=FAims
+
+		else:
+			print('No T1 data found')
+			return
+
 
 	# Finally, a method to read all the images
 	def read_ims(self):
@@ -157,6 +199,7 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'T2wims'):
 			print("Please read the T2w images first")
 			return
+
 		if not hasattr(self,'dynims'):
 			print("Please read the dynamic images first")
 			return
@@ -164,8 +207,9 @@ class patient(object): # patient inherits from the object class
 		# change to roi directory and display the available ROI files in the ROI directory
 		os.chdir(os.path.join(self.studyrootdirect,self.roidirect))
 		roifiles=glob.glob('*.roi')
-		print("ROI files found:")
-		print(roifiles)
+		if readall==1:
+			print("ROI files found:")
+			print(roifiles)
 
 		# deal with choosing files if requested
 		if readall==0:
@@ -178,15 +222,11 @@ class patient(object): # patient inherits from the object class
 
 		#make the appropriate structured array to put the read rois into
 		self.rois=np.zeros(len(roifiles),dtype=[('roiname','a60'),('hiresarray','u2',self.T2wims.shape),('dynresarray','u2',self.dynims.shape[0:3]),('T1','f8')])
-
+		
 		# go through each file, reading and converting to arrays
 
 		for i in range (0,len(roifiles)):
-<<<<<<< HEAD
 			#print(roifiles[i])
-=======
-			print(roifiles[i])
->>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
 			#Read the file  - unsigned short little endian
 			roi=np.fromfile(roifiles[i],np.uint16)
 			# Set flag for extended format
@@ -237,29 +277,59 @@ class patient(object): # patient inherits from the object class
 			self.rois['hiresarray'][i]=mask
 			self.rois['dynresarray'][i]=smallmask
 
+
 	# methods for AIF
 	#####################################################
-	def read_AIF_fromfittingfile(self,AIFdirectory="/Users/lkershaw/Desktop/Fitting/Tumour"):#'E:\HeadAndNeck\HeadNeckNewPts\Fitting\Tumour'):
+	def read_AIF_fromfittingfile(self,AIFfilename=0,AIFdirectory=os.path.normpath('E:/Bladder tumour fitting/Bladder RT scan 4 data/FittingData')):
 		# read existing AIF from fitting file in given directory
-		# Usually called P50_pre.txt, etc, found in third column in conc units assuming hct of 0.42
-		# and r1 of 4.5
+		
 
-		if self.visitnumber==1:
-			visittext='pre'
-		if self.visitnumber==2:
-			visittext='post'
+		if AIFfilename==0:
+			# For Head and neck data, usually called P50_pre.txt OR Patient 50_pre.txt, etc, found in third column in conc units assuming hct of 0.42
+			# and r1 of 4.5
 
-		filename='P'+str(self.studynumber)+'_'+visittext+'.txt'
-		print('looked for a file called '+filename)
-		#AIFfile=np.loadtxt(os.path.join(AIFdirectory,filename))
-		print(os.path.join(AIFdirectory,filename))
-		AIFfile=np.genfromtxt(os.path.join(AIFdirectory,filename))
+			if self.visitnumber==1:
+				visittext='pre'
+			if self.visitnumber==2:
+				visittext='post'
+			if self.visitnumber==3:
+				visittext='Scan 3'
+
+			filename1='P'+str(self.studynumber)+'_'+visittext+'.txt'
+			filename2='Patient '+str(self.studynumber)+'_'+visittext+'.txt'
+			filename3='P'+str(self.studynumber)+'_tumour.txt'
+			print('looking for a file called '+filename1+' or '+filename2+' or '+filename3+' here.....')
+			print(os.path.join(AIFdirectory,visittext))
+
+			#Check for all formats of file name and read in the one that exists
+
+			if os.path.isfile(os.path.join(AIFdirectory,visittext,filename1)):
+				AIFfile=np.genfromtxt(os.path.join(AIFdirectory,visittext,filename1))
+				print('reading file')
+			elif os.path.isfile(os.path.join(AIFdirectory,visittext,filename2)):
+				AIFfile=np.genfromtxt(os.path.join(AIFdirectory,visittext,filename2))
+				print('reading file')
+			elif os.path.isfile(os.path.join(AIFdirectory,visittext,filename3)):
+				AIFfile=np.genfromtxt(os.path.join(AIFdirectory,visittext,filename3))
+				print('reading file')
+			else:
+				print('Original tumour curves file containing AIF not found')
+				return
+		#Or, if these are bladder data or some other study, specify the filename directly
+		elif os.path.isfile(os.path.join(AIFdirectory,AIFfilename)):
+				AIFfile=np.genfromtxt(os.path.join(AIFdirectory,AIFfilename))
+				print('reading file')
+
+		else:
+			print('Looked here:')
+			print(os.path.join(AIFdirectory,AIFfilename))
+			print('but AIF file not found')
+			return
+
 		# Convert back to delta R1 and use patient hct
 		self.AIF=(AIFfile[:,2]*4.5)*(1-0.42)/(1-self.hct)
-		self.t=AIFfile[:,1] # time in minutes
+		self.t=AIFfile[:,0] # time in s
 
-	def getpixelAIF(self):
-		pass # get an AIF from the dynamic data
 		
 	# Initial processing
 	#####################################################
@@ -304,18 +374,40 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self, 'T1curves'):
 			print('Extract the T1 curves first - patient.get_T1curves()')
 			return
-		TIs=self.T1info['TIs'][0]
-		TR=self.T1info['TR']
-		n=self.T1info['n']
-		flip=self.T1info['FlipAngle']
+		
+		#Test the length of the fip angles attribute - if it's not 1, this is flip angle data
+		if self.T1info['FlipAngle'].shape[1]==3:
+			print('This is flip angle data')
+			flips=self.T1info['FlipAngle'][0]
+			TR=self.T1info['TR'][0]
 
-		for i in range(0,self.T1curves.shape[1]):
-			data=self.T1curves[:,i]
-			fit=SRTurboFLASH.fittingfun(TIs,TR,flip,n,data)
-			if plotfit==1:
-				plt.plot(TIs,data,'x')
-				plt.plot(TIs,SRTurboFLASH.SIeqn(fit.x,TIs,TR,flip,n))
-			self.rois['T1'][i]=fit.x[0]
+			for i in range(self.T1curves.shape[1]):
+				data=self.T1curves[:,i]
+				fit=FLASH.fittingfun(flips,TR,data)
+				if plotfit==1:
+					plt.plot(flips,data,'x')
+					plt.plot(flips,FLASH.SIeqn(fit.x,flips,TR))
+				self.rois['T1'][i]=fit.x[0]
+
+
+
+		#Or if it's SR data....
+		else: 
+			TIs=self.T1info['TIs'][0]
+			TR=self.T1info['TR']
+			n=self.T1info['n']
+			flip=self.T1info['FlipAngle']
+
+			for i in range(0,self.T1curves.shape[1]):
+				data=self.T1curves[:,i]
+				fit=SRTurboFLASH.fittingfun(TIs,TR,flip,n,data)
+				if plotfit==1:
+					plt.plot(TIs,data,'x')
+					plt.plot(TIs,SRTurboFLASH.SIeqn(fit.x,TIs,TR,flip,n))
+				self.rois['T1'][i]=fit.x[0]
+
+
+		print(self.rois['T1'])
 
 	def SIconvert(self, baselinepts=10): 
 		#Check we have rois and T1s
@@ -336,12 +428,12 @@ class patient(object): # patient inherits from the object class
 			T1base=self.rois['T1'][i]
 			# Convert T1 to R1 in s^-1
 			R1base=1/(T1base/1000)
-			print(R1base)
+			#print(R1base)
 			# extract baseline SI and calculate M0
 			base=np.mean(SIcurve[0:baselinepts])
-			print(base)
+			#print(base)
 			M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
-			print(M0)
+			#print(M0)
 			# Now calculate the R1 curve
 			R1=np.log(((M0*np.sin(rflip))-SIcurve)/(M0*np.sin(rflip)-(SIcurve*np.cos(rflip))))*(-1/TR)
 			# And finally the delta R1 curve
@@ -364,14 +456,14 @@ class patient(object): # patient inherits from the object class
 	def fit_ExtTofts(self):
 		pass
 
-	def fit_2CXM(self,SIflag):
+	def fit_2CXM(self,SIflag,Ketystart=[0.025,0.2]):
 		# To fit SI, set SIflag to 1
 		# check for an AIF
 		if not hasattr(self,'AIF'):
 			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
 			return
-		TwoCXMfitConc=np.zeros([6,len(self.rois)])
-		TwoCXMfitSI=np.zeros([6,len(self.rois)])
+		TwoCXMfitConc=np.zeros([len(self.rois),6])
+		TwoCXMfitSI=np.zeros([len(self.rois),6])
 		
 		if SIflag==1:
 			for i in range(0,len(self.rois)):
@@ -379,13 +471,13 @@ class patient(object): # patient inherits from the object class
 				TR=self.dyninfo['TR']/1000
 				flip=self.dyninfo['FlipAngle']
 				T1base=self.rois['T1'][i]
-				TwoCXMfitSI[:,i]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
+				TwoCXMfitSI[i,:]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 6, TR, flip, T1base/1000,Ketystart)
 				self.TwoCXMfitSI=TwoCXMfitSI
 
 		else:
 			for i in range(0,len(self.rois)):
 				uptake=self.Conccurves[:,i]
-				TwoCXMfitConc[:,i]=TwoCXM.TwoCXMfittingConc(self.t,self.AIF,uptake,None) # Fit the 2CXM to the dynamic curve
+				TwoCXMfitConc[i,:]=TwoCXM.TwoCXMfittingConc(self.t,self.AIF,uptake,None, Ketystart) # Fit the 2CXM to the dynamic curve
 				self.TwoCXMfitConc=TwoCXMfitConc
 
 
@@ -395,8 +487,8 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'AIF'):
 			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
 			return
-		AATHfitConc=np.zeros([6,len(self.rois)])
-		AATHfitSI=np.zeros([6,len(self.rois)])
+		AATHfitConc=np.zeros([len(self.rois),6])
+		AATHfitSI=np.zeros([len(self.rois),6])
 		
 		if SIflag==1:
 			for i in range(0,len(self.rois)):
@@ -404,13 +496,13 @@ class patient(object): # patient inherits from the object class
 				TR=self.dyninfo['TR']/1000
 				flip=self.dyninfo['FlipAngle']
 				T1base=self.rois['T1'][i]
-				AATHfitSI[:,i]=AATH.AATHfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
+				AATHfitSI[i,:]=AATH.AATHfittingSI(self.t, self.AIF, uptake, None, 6, TR, flip, T1base/1000)
 				self.AATHfitSI=AATHfitSI
 
 		else:
 			for i in range(0,len(self.rois)):
 				uptake=self.Conccurves[:,i]
-				AATHfitConc[:,i]=AATH.AATHfittingConc(self.t,self.AIF,uptake,None) # Fit the 2CXM to the dynamic curve
+				AATHfitConc[i,:]=AATH.AATHfittingConc(self.t,self.AIF,uptake,None) # Fit the AATHmodel to the dynamic curve
 				self.AATHfitConc=AATHfitConc
 
 
@@ -420,37 +512,25 @@ class patient(object): # patient inherits from the object class
 
 	# Export methods
 	#####################################################
-	def export_fits(self,exportfilename):
+	def export_fits(self,exportfilename,fittoexport):
 		# Remember to add the full path for the results
-		
-
-
 
 		# Create the file if not already there
-<<<<<<< HEAD
 		if not os.path.isfile(exportfilename):
 			print('Creating file...')
 			f=open(exportfilename,'x')
 			f.close
-
 		# Write to file, appending result
 		with open(exportfilename,'a') as csvfile:
 			writefile=csv.writer(csvfile)
 			print('Writing to file...')
-			writefile.writerow(np.squeeze(self.AATHfitSI))
+			for i in range(0,fittoexport.shape[0]):
+				writefile.writerow([self.studynumber,self.rois['roiname'][i]]+np.squeeze(fittoexport[i,:]).tolist())
 
 		print('Done')
-=======
-		if not os.isfile(exportfilename):
-			f=open(exportfilename,'x')
-			f.close
+		
 
-		else:
-			with open(exportfilename,'a') as csvfile:
-    		writefile=csv.writer(csvfile)
-    		writefile.writerow(squeeze(P42.AATHfitSI))
->>>>>>> d62e01aef5d927bfc421e983da386b1a1134cb18
-
+		return
 
 
 

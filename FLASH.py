@@ -1,9 +1,28 @@
-# FLASH signal equation - conversion from SI to concentration and vice-versa
+# FLASH signal equation, conversion from SI to concentration and vice-versa
 
-def SIeqn(M0, flip, TR, T1base, ):
-	pass
+import numpy as np
+import scipy.optimize
+
+def SIeqn(paramsin, flip, TR):
+	M0=paramsin[0]
+	T1=paramsin[1]
+	rflip=flip*np.pi/180
+	SI=M0*np.sin(rflip)*(1-np.exp(-TR/T1))/(1-np.cos(rflip)*np.exp(-TR/T1))
+	return SI
 
 
+def fittingfun(flips,TR,data):
+	startguess=[1000,1500] #this is [M0,T1]
+	bnds=((0,3000),(0,1000000)) # Set upper and lower bounds for parameters
+	fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':True,'eps':1e-10,'maxiter':1000})
+	return fit
+
+
+def objfun(paramsin,flips,TR,data):
+	# return chi**2
+	SI=SIeqn(paramsin,flips,TR)
+	chi2=np.sum((data-SI)**2)
+	return chi2
 
 
 # Conversion from SI to concentration
