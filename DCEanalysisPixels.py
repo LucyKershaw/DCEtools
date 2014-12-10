@@ -6,6 +6,7 @@ import dicom
 import matplotlib.pyplot as plt
 import os
 import glob
+import shutil
 from tkinter import Tk
 from tkinter import filedialog
 from roipoly import roipoly
@@ -531,6 +532,9 @@ class patient(object): # patient inherits from the object class
 								T1base=self.T1map[i,j,sl]
 								fit=AATH.AATHfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000)
 								self.AATHfitSI[i,j,sl,:]=fit
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','AATHfitSImaps.npy'),self.AATHfitSI)
+
 
 		else:
 			for sl in range(self.dynims.shape[2]):
@@ -543,8 +547,8 @@ class patient(object): # patient inherits from the object class
 									AATHfitConc=AATH.AATHfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
 									self.AATHfitConc[i,j,sl,:]=AATHfitConc
 
-		if save==1:
-			np.save(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'),self.AATHfitConc)
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'),self.AATHfitConc)
 
 
 	def load_AATHConcparammaps(self):
@@ -555,6 +559,14 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.AATHfitConc=np.load(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'))
 
+	def load_AATHSIparammaps(self):
+		#Method to load maps from numpy arrays
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','AATHfitSImaps.npy')):
+			print('No AATH maps saved')
+			return
+		else:
+			self.AATHfitSI=np.load(os.path.join(self.patientdirect,'Analysis','AATHfitSImaps.npy'))
+
 	def load_TwoCXMSIparammaps(self):
 		#Method to load maps from numpy arrays
 		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy')):
@@ -562,6 +574,38 @@ class patient(object): # patient inherits from the object class
 			return
 		else:
 			self.TwoCXMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy'))
+
+
+	def write_maps(self,dynfoldertag):
+		# Method to save specified maps to dicom
+		DynFolder=glob.glob(os.path.join(self.dicomdirect,dynfoldertag))
+		os.chdir(os.path.join(self.dicomdirect,DynFolder[0]))
+		
+		filenames=glob.glob('*.dcm')
+		numfiles=len(filenames)
+		for i in range(20):
+			tmp=dicom.read_file(filenames[int(numfiles/20)*i])
+			Fpimage=self.AATHfitSI[:,:,i,1]*60*1000
+			#print(Fpimage.dtype)
+			Fpimage=Fpimage.astype('uint16')
+			tmp.PixelData=Fpimage.tostring()
+			dicom.write_file('Fp_'+str(i+1)+'.dcm',tmp)
+			PSimage=-1*np.log(1-self.AATHfitSI[:,:,i,0])*self.AATHfitSI[:,:,i,1]*60*100
+			PSimage=PSimage.astype('uint16')
+			tmp.PixelData=PSimage.tostring()
+			dicom.write_file('PS_'+str(i+1)+'.dcm',tmp)
+
+		newfiles=glob.glob('Fp*')
+		os.mkdir('Fp')
+		for x in newfiles:
+			os.rename(x,os.path.join('Fp',x))
+		shutil.move('Fp','..')
+		
+		newfiles=glob.glob('PS*')
+		os.mkdir('PS')
+		for x in newfiles:
+			os.rename(x,os.path.join('PS',x))
+		shutil.move('PS','..')
 
 	def fit_TH(self):
 		pass
