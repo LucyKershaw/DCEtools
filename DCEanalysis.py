@@ -14,22 +14,23 @@ import scipy.optimize
 import TwoCXM
 import AATH
 import FLASH
+import overlay
 
 class patient(object): # patient inherits from the object class
 	
 	def __init__(self,studynumber,visitnumber,visitdate,hct=0.42): # set the patient number, visit number and hct for these data
-		self.studyrootdirect=os.path.normpath("P:/Physics/Non-Ionising Imaging/Magnetic Resonance/MRI2/DCE-MRI projects/Bladder/New bladder study/Patients/")
+		#self.studyrootdirect=os.path.normpath("P:/Physics/Non-Ionising Imaging/Magnetic Resonance/MRI2/DCE-MRI projects/Bladder/New bladder study/Patients/")
+		self.studyrootdirect=os.path.normpath("P:/Physics/Non-Ionising Imaging/Magnetic Resonance/MRI2/DCE-MRI projects/New H&N project/Patients/")
 		#self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
 		#self.studyrootdirect=os.path.normpath("E:/HeadAndNeck/HeadNeckNewPts/Patients/") # this will be head and neck data
-		#self.studyrootdirect=os.path.normpath("/Users/lkershaw/Desktop/")
 		self.hct=hct
 		self.studynumber=studynumber
 		self.visitnumber=visitnumber
 		self.visitdate=visitdate
-		#self.dicomdirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory
-		self.dicomdirect=os.path.normpath(str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory
-		#self.roidirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory
-		self.roidirect=os.path.normpath(str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory
+		self.dicomdirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory - Head and neck
+		#self.dicomdirect=os.path.normpath(str(studynumber)+"/"+str(visitdate)+"/Dicom")# Construct the expected name for the dicom directory - bladder
+		self.roidirect=os.path.normpath("Patient "+str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory - head and neck
+		#self.roidirect=os.path.normpath(str(studynumber)+"/"+str(visitdate)+"/ROIs")# Construct the expected name for the roi directory - bladder
 
 		print("Patient "+str(studynumber)+" visit "+str(visitnumber)+" created.  Imaging data expected in:")
 		print(os.path.join(self.studyrootdirect,self.dicomdirect)+" Does this exist? "+str(os.path.isdir(os.path.join(self.studyrootdirect,self.dicomdirect)))) # Check these exist
@@ -67,6 +68,7 @@ class patient(object): # patient inherits from the object class
 		T2wdirect=glob.glob('*hr*')[0]
 		# find .dcm files in there
 		filenames=glob.glob(os.path.join(T2wdirect,'*.dcm'))
+		print(filenames)
 		numfiles=len(filenames)
 		print("Reading "+str(numfiles)+" files")
 		# read the first file to find out size, and add pixel size info to T2winfo structure
@@ -76,8 +78,9 @@ class patient(object): # patient inherits from the object class
 		im=info.pixel_array
 
 		T2wims=np.zeros(np.array([im.shape[0],im.shape[1],numfiles]))
-		for i in range(0,numfiles-1):
+		for i in range(0,numfiles):
 			temp=dicom.read_file(filenames[i])
+			#print(filenames[i])
 			imnum=temp.InstanceNumber
 			T2wims[:,:,imnum-1]=temp.pixel_array
 		self.T2wims=T2wims
@@ -87,7 +90,7 @@ class patient(object): # patient inherits from the object class
 		# change to DynamicSeries directory
 		os.chdir(os.path.join(self.studyrootdirect,self.dicomdirect,"DynamicSeries"))
 		# get the timepoint directory names, sorted in the right order
-		dyndirects=sorted(glob.glob('*'),key=int)
+		dyndirects=sorted(glob.glob('*[0-9]*'),key=int)
 		print("Found "+str(len(dyndirects))+" time point directories")
 		# in first directory, read in one slice to work out size and fill out info variables
 		dynfiles=glob.glob(dyndirects[0]+os.path.normpath("/*.dcm"))
@@ -120,7 +123,7 @@ class patient(object): # patient inherits from the object class
 		if os.path.isdir(os.path.join(self.studyrootdirect,self.dicomdirect,"SR")):
 			os.chdir(os.path.join(self.studyrootdirect,self.dicomdirect,"SR"))
 			# get the TI directory names, sorted correctly
-			TIdirects=glob.glob('*')
+			TIdirects=glob.glob('*TI*')
 			TIdirects.sort(key=lambda x: int(x[3:]))
 			print("Found these TI directories - ")
 			print(TIdirects)
@@ -193,8 +196,9 @@ class patient(object): # patient inherits from the object class
 
 	# Define methods to read in and convert the ROI files, and also to show which ROIs have been read
 	#####################################################
-	def read_rois(self,readall=1):
+	def read_rois(self,readall=1,roi_on_dynamic=0):
 		# readall is flag to read all .roi files in the folder.  if you want to choose, set readall to 0 instead
+		# set roi_on_dynamic to 1 if the rois are marked on the dynamics and not on the T2w images.  hiresarray and dynresarray will be the same
 		# Check for T2w images - need their size to get the roi array size
 		if not hasattr(self,'T2wims'):
 			print("Please read the T2w images first")
@@ -234,7 +238,8 @@ class patient(object): # patient inherits from the object class
 			# Make a results array to hold the roi
 			mask=np.zeros(np.array(self.T2wims.shape))
 			smallmask=np.zeros(np.array(self.dynims.shape[0:3]))
-
+			if roi_on_dynamic==1:
+				mask=np.zeros(np.array(self.dynims.shape[0:3]))
 			# Now begin parsing the array - the structure of the .roi file from MRIcro is [Slice index, words in slice, 
 			# begin index, run length, begin index, run length..... slice index...]
 			start_pos=0
@@ -247,7 +252,7 @@ class patient(object): # patient inherits from the object class
 					extendedformat=1
 					SliceIndex=SliceIndex-(256*256)/2
 				# Assign temporary array to put the values into
-				slice_tmp=np.zeros(np.array(self.T2wims.shape[0:2]))
+				slice_tmp=np.zeros(np.array(mask.shape[0:2]))
 				WordsInSlice=roi[start_pos+1] # Get the number of words - that's in the next position
 				end_pos=start_pos+WordsInSlice # Set the place to stop so that only words for this slice are read
 				tmp=roi[start_pos+2:end_pos] # read all the words for this slice (+2 to avoid reading sliceindex and wordsinslice again)
@@ -274,9 +279,44 @@ class patient(object): # patient inherits from the object class
 
 			# put the mask into the rois structured array
 			self.rois['roiname'][i]=roifiles[i]
-			self.rois['hiresarray'][i]=mask
-			self.rois['dynresarray'][i]=smallmask
+			if roi_on_dynamic==1:
+				self.rois['dynresarray'][i]=mask
+			if roi_on_dynamic==0:
+				self.rois['hiresarray'][i]=mask
+				self.rois['dynresarray'][i]=smallmask
 
+	def check_roi(self):
+		# Method to check if rois have moved out of the tissue they're supposed to be in 
+
+		# Check for dynamic images and rois 
+		if not hasattr(self,'rois'):
+			print("Please read the rois first")
+			return
+
+		if not hasattr(self,'dynims'):
+			print("Please read the dynamic images first")
+			return 
+
+		# Display rois names and choose which to display
+		[print(item) for item in enumerate(self.rois['roiname'])]
+		ids=input("Input the id number for the roi to display: ")
+		ids=int(ids)
+		# Find the main slice for the roi
+		mainslice=np.argmax(sum(sum(self.rois['dynresarray'][ids],0),0))
+
+		#Display the roi on top of the dynamic images for beginning, middle and end of series
+		early=5
+		late=self.dynims.shape[3]-1
+		mid=np.floor(late/2)
+		overlay.overlay(self.dynims[:,:,mainslice,early],self.rois['dynresarray'][ids][:,:,mainslice],0.3,1)
+		#overlay.overlay(self.dynims[:,:,mainslice,mid],self.rois['dynresarray'][ids][:,:,mainslice],0.3,1)
+		overlay.overlay(self.dynims[:,:,mainslice,late],self.rois['dynresarray'][ids][:,:,mainslice],0.3,1)
+		overlay.overlay(self.T2wims[:,:,mainslice],self.rois['hiresarray'][ids][:,:,mainslice],0.3,1)
+
+		self.get_SIcurves()
+		plt.figure()
+		plt.plot(self.SIcurves[:,ids])
+		print(str(mainslice))
 
 	# methods for AIF
 	#####################################################
@@ -376,7 +416,7 @@ class patient(object): # patient inherits from the object class
 			return
 		
 		#Test the length of the fip angles attribute - if it's not 1, this is flip angle data
-		if self.T1info['FlipAngle'].shape[1]==3:
+		if self.T1info['FlipAngle'].shape[0]==3:
 			print('This is flip angle data')
 			flips=self.T1info['FlipAngle'][0]
 			TR=self.T1info['TR'][0]
@@ -409,7 +449,7 @@ class patient(object): # patient inherits from the object class
 
 		print(self.rois['T1'])
 
-	def SIconvert(self, baselinepts=10): 
+	def SIconvert(self, baselinepts=5): 
 		#Check we have rois and T1s
 		if not hasattr(self,'rois'):
 			print('Read in rois first - patient.read_rois()')
@@ -462,8 +502,8 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'AIF'):
 			print('No AIF - if reading from file, patient.read_AIF_fromfittingfile')
 			return
-		TwoCXMfitConc=np.zeros([len(self.rois),6])
-		TwoCXMfitSI=np.zeros([len(self.rois),6])
+		TwoCXMfitConc=np.zeros([len(self.rois),7])
+		TwoCXMfitSI=np.zeros([len(self.rois),7])
 		
 		if SIflag==1:
 			for i in range(0,len(self.rois)):
@@ -471,7 +511,7 @@ class patient(object): # patient inherits from the object class
 				TR=self.dyninfo['TR']/1000
 				flip=self.dyninfo['FlipAngle']
 				T1base=self.rois['T1'][i]
-				TwoCXMfitSI[i,:]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 6, TR, flip, T1base/1000,Ketystart)
+				TwoCXMfitSI[i,:]=TwoCXM.TwoCXMfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000,Ketystart)
 				self.TwoCXMfitSI=TwoCXMfitSI
 
 		else:
@@ -496,7 +536,7 @@ class patient(object): # patient inherits from the object class
 				TR=self.dyninfo['TR']/1000
 				flip=self.dyninfo['FlipAngle']
 				T1base=self.rois['T1'][i]
-				AATHfitSI[i,:]=AATH.AATHfittingSI(self.t, self.AIF, uptake, None, 6, TR, flip, T1base/1000)
+				AATHfitSI[i,:]=AATH.AATHfittingSI(self.t, self.AIF, uptake, None, 5, TR, flip, T1base/1000)
 				self.AATHfitSI=AATHfitSI
 
 		else:

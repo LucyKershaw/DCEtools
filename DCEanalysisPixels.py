@@ -16,6 +16,7 @@ import SRTurboFLASH
 import IRTurboFLASH
 import scipy.optimize
 import TwoCXM
+import TwoCUM
 import AATH
 import FLASH
 import getAIF
@@ -231,24 +232,35 @@ class patient(object): # patient inherits from the object class
 		midslice=np.floor(self.dynims.shape[2]/2)
 		peakframe=np.argmax(np.amax(np.amax(self.dynims[:,:,midslice,0:50],0),0))
 		h2=plt.figure()
-		plt.subplot(2,3,1)
-		plt.imshow(self.dynims[:,:,13,peakframe])
-		plt.title('13')
-		plt.subplot(2,3,2)
-		plt.imshow(self.dynims[:,:,14,peakframe])
-		plt.title('14')
-		plt.subplot(2,3,3)
-		plt.imshow(self.dynims[:,:,15,peakframe])
-		plt.title('15')
-		plt.subplot(2,3,4)
-		plt.imshow(self.dynims[:,:,16,peakframe])
-		plt.title('16')
-		plt.subplot(2,3,5)
-		plt.imshow(self.dynims[:,:,17,peakframe])
-		plt.title('17')
-		plt.subplot(2,3,6)
-		plt.imshow(self.dynims[:,:,18,peakframe])
-		plt.title('18')
+		plt.subplot(3,3,1)
+		plt.imshow(self.dynims[:,:,3,peakframe])
+		plt.title('3')
+		plt.subplot(3,3,2)
+		plt.imshow(self.dynims[:,:,4,peakframe])
+		plt.title('4')
+		plt.subplot(3,3,3)
+		plt.imshow(self.dynims[:,:,5,peakframe])
+		plt.title('5')
+		plt.subplot(3,3,4)
+		plt.imshow(self.dynims[:,:,6,peakframe])
+		plt.title('6')
+		plt.subplot(3,3,5)
+		plt.imshow(self.dynims[:,:,7,peakframe])
+		plt.title('7')
+		plt.subplot(3,3,6)
+		plt.imshow(self.dynims[:,:,8,peakframe])
+		plt.title('8')
+		plt.subplot(3,3,7)
+		plt.imshow(self.dynims[:,:,9,peakframe])
+		plt.title('9')
+		plt.subplot(3,3,8)
+		plt.imshow(self.dynims[:,:,10,peakframe])
+		plt.title('10')
+		plt.subplot(3,3,9)
+		plt.imshow(self.dynims[:,:,11,peakframe])
+		plt.title('11')
+
+
 
 		ids=input("Input the id number for the slices to be used, separated by commas: ")
 		ids=ids.split(',')
@@ -505,6 +517,58 @@ class patient(object): # patient inherits from the object class
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitConcmaps.npy'),self.TwoCXMfitConc)
 
+	def fit_2CUM(self, SIflag, save):
+		# To fit SI, set SIflag to 1
+		# To save maps, set save flag to 1
+		# check for an AIF
+		if not hasattr(self,'AIF'):
+			print('No AIF available')
+			return
+
+		if not hasattr(self,'T1map'):
+			print('No T1map available')
+			return
+
+		if not hasattr(self,'dynmask'):
+			print('No mask available')
+			return
+
+		self.TwoCUMfitConc=np.zeros((self.dynmask.shape+(6,)))
+		self.TwoCUMfitSI=np.zeros((self.dynmask.shape+(6,)))
+		
+		TR=self.dyninfo['TR']/1000
+		flip=self.dyninfo['FlipAngle']
+		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+
+		if SIflag==1:
+			for sl in range(self.dynims.shape[2]):
+				count=0
+				total=np.sum(self.dynmask[:,:,sl])
+				for i in range(self.dynims.shape[0]):
+					for j in range(0,self.dynims.shape[1]):
+						if self.dynmask[i,j,sl]==1:
+							count=count+1
+							print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
+							uptake=np.squeeze(self.dynims[i,j,sl,:])
+							T1base=self.T1map[i,j,sl]
+							fit=TwoCUM.TwoCUMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
+							self.TwoCUMfitSI[i,j,sl,:]=fit
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy'),self.TwoCUMfitSI)
+
+		else:
+			for sl in range(self.dynims.shape[2]):
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
+								print(i,j,sl)
+								if np.isnan(np.sum(uptakeConc))==0:
+									TwoCUMfitConc=TwoCUM.TwoCUMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
+									self.TwoCUMfitConc[i,j,sl,:]=TwoCUMfitConc
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitConcmaps.npy'),self.TwoCUMfitConc)
+
 	def fit_AATH(self,SIflag,save):
 		# To fit SI, set SIflag to 1
 		# To save the maps as a numpy array, set save to 1 
@@ -575,25 +639,45 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.TwoCXMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy'))
 
+	def load_TwoCUMSIparammaps(self):
+		#Method to load maps from numpy arrays
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy')):
+			print('No TwoCUMSI maps saved')
+			return
+		else:
+			self.TwoCUMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy'))
 
-	def write_maps(self,dynfoldertag):
+
+
+	def write_maps(self,dynfoldertag,mapname):
 		# Method to save specified maps to dicom
 		DynFolder=glob.glob(os.path.join(self.dicomdirect,dynfoldertag))
-		os.chdir(os.path.join(self.dicomdirect,DynFolder[0]))
+		print(os.path.join(self.dicomdirect,dynfoldertag))
+		print(DynFolder)
+		os.chdir(DynFolder[0])
 		
 		filenames=glob.glob('*.dcm')
 		numfiles=len(filenames)
-		for i in range(20):
-			tmp=dicom.read_file(filenames[int(numfiles/20)*i])
-			Fpimage=self.AATHfitSI[:,:,i,1]*60*1000
+		maps=getattr(self,mapname)
+
+		for i in range(maps.shape[2]):
+			tmp=dicom.read_file(filenames[int(numfiles/(maps.shape[2]))*i])
+			Fpimage=abs(maps[:,:,i,1]*60*100)
+			Fpimage=Fpimage*(Fpimage<100)
 			#print(Fpimage.dtype)
 			Fpimage=Fpimage.astype('uint16')
 			tmp.PixelData=Fpimage.tostring()
 			dicom.write_file('Fp_'+str(i+1)+'.dcm',tmp)
-			PSimage=-1*np.log(1-self.AATHfitSI[:,:,i,0])*self.AATHfitSI[:,:,i,1]*60*100
+			PSimage=abs(-1*np.log(1-maps[:,:,i,0])*maps[:,:,i,1])*60*100
+			PSimage=PSimage*(PSimage<100)
 			PSimage=PSimage.astype('uint16')
 			tmp.PixelData=PSimage.tostring()
 			dicom.write_file('PS_'+str(i+1)+'.dcm',tmp)
+			Ktransimage=abs(maps[:,:,i,0]*maps[:,:,i,1])*60*100
+			Ktransimage=Ktransimage*(Ktransimage<100)
+			Ktransimage=Ktransimage.astype('uint16')
+			tmp.PixelData=Ktransimage.tostring()
+			dicom.write_file('Ktrans_'+str(i+1)+'.dcm',tmp)
 
 		newfiles=glob.glob('Fp*')
 		os.mkdir('Fp')
@@ -606,6 +690,12 @@ class patient(object): # patient inherits from the object class
 		for x in newfiles:
 			os.rename(x,os.path.join('PS',x))
 		shutil.move('PS','..')
+
+		newfiles=glob.glob('Ktrans*')
+		os.mkdir('Ktrans')
+		for x in newfiles:
+			os.rename(x,os.path.join('Ktrans',x))
+		shutil.move('Ktrans','..')
 
 	def fit_TH(self):
 		pass

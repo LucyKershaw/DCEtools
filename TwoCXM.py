@@ -96,8 +96,8 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
         Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP',options={'disp':False})
         toff=Ketyresult.x[2]
         print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
-        #concdata=Kety(Ketyresult.x,t,AIF)
-        #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
+        concdata=Kety(Ketyresult.x,t,AIF)
+        plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
         #plt.plot(t,AIF)
 
     if toff==0:
@@ -115,7 +115,7 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
     
     # Parameters to fit are E, Fp, ve
     startguess=np.array((0.01,0.5,0.5))  # Set starting guesses
-    bnds=((0.00001,0.999),(0.00001,10),(0.00001,2)) # Set upper and lower bounds for parameters
+    bnds=((0.00001,0.999),(0.00001,10),(0.00001,3)) # Set upper and lower bounds for parameters
     resultsmatrix=np.zeros((len(vpmatrix),7))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
@@ -139,7 +139,7 @@ def TwoCXMfittingConc(t, AIF, uptake, toff, Ketystart):
     import matplotlib.pyplot as plt
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp from the first third of the curve
-    #plt.figure()
+    plt.figure()
 
     firstthird=np.round(len(t)/3)
     if toff is None:
@@ -165,19 +165,19 @@ def TwoCXMfittingConc(t, AIF, uptake, toff, Ketystart):
     # Parameters to fit are E, Fp, ve
     startguess=np.array((0.1,0.5,0.5))  # Set starting guesses
     bnds=((0.00001,2),(0.00001,10),(0.00001,3)) # Set upper and lower bounds for parameters
-    resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
+    resultsmatrix=np.zeros((len(vpmatrix),7))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
         Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'eps':1e-09,'maxiter':1000})
         #print(Result.x,vpmatrix[i],Result.fun,Result.success)
-        resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff)
+        resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff,Result.status)
     
     #print(resultsmatrix)
     bestindex=np.nanargmin(resultsmatrix[:,4])
     bestresult=resultsmatrix[bestindex,:]
     print(bestresult)
-    #plt.plot(t,uptake,'x')
-    #plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff))
+    plt.plot(t,uptake,'x')
+    plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff))
     return bestresult
 
 def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):

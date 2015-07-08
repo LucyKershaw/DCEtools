@@ -78,7 +78,7 @@ def AATHfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     #print(M0)
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp
-    #plt.figure()
+    plt.figure()
 
     if toff is None:
         firstthird=np.round(len(t)/3)
@@ -89,8 +89,8 @@ def AATHfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
         if not np.isnan(Ketyresult.x[2]):
             toff=Ketyresult.x[2]
         print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
-        #concdata=Kety(Ketyresult.x,t,AIF)
-        #plt.plot(t,FLASH.Conc2SI(concdata,TR,flip,T1base,M0),'b')
+        concdata=Kety(Ketyresult.x,t,AIF)
+        plt.plot(t,FLASH.Conc2SI(concdata,TR,flip,T1base,M0),'b')
 
     if toff==0:
         AIFnew=AIF
@@ -120,8 +120,8 @@ def AATHfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     print(bestresult)
     #plt.plot(resultsmatrix[:,4])
     #plt.figure()
-    #plt.plot(t,uptake,'x')
-    #plt.plot(t,FLASH.Conc2SI(AATH(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
+    plt.plot(t,uptake,'x')
+    plt.plot(t,FLASH.Conc2SI(AATH(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
 
     return bestresult
 
@@ -132,7 +132,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
     import matplotlib.pyplot as plt
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp from the first third of the curve
-    #plt.figure()
+    plt.figure()
 
     firstthird=np.round(len(t)/3)
     if toff is None:
@@ -142,7 +142,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
         toff=0
         if not np.isnan(Ketyresult.x[2]):
             toff=Ketyresult.x[2]
-        #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
+        plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
         #print(Ketyresult.x)
         print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
     
@@ -168,8 +168,8 @@ def AATHfittingConc(t, AIF, uptake, toff):
     print(bestresult)
     #plt.plot(resultsmatrix[:,4])
     #plt.figure()
-    #plt.plot(t,uptake,'x')
-    #plt.plot(t,AATH(bestresult[0:4],t,AIF,toff))
+    plt.plot(t,uptake,'x')
+    plt.plot(t,AATH(bestresult[0:4],t,AIF,toff))
     
     return bestresult
 

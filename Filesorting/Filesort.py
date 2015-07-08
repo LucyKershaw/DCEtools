@@ -146,6 +146,24 @@ def sort_series(direct):
 		for Z in glob.glob(os.path.join(direct,(Y+'*.dcm'))):
 			os.rename(Z,os.path.join(direct,Y,os.path.split(Z)[1]))
 
+def sort_DWI():
+	# Run this in the DWI series folder
+	import os
+	import glob
+	import shutil
 
+	filenames=glob.glob('*.dcm')
+	b800=filenames[2:240:3]
+	b100=filenames[0:240:3]
 
+	os.mkdir('b100')
+	os.mkdir('b800')
+
+	for x in b800:
+		shutil.copy(x,'b800')
+	for x in b100:
+		shutil.copy(x,'b100')
+
+	shutil.move('b100','..')
+	shutil.move('b800','..')
 	
