@@ -53,18 +53,24 @@ def Filesort_Philips(direct):
 	# Add an Analysis folder in the main patient directory
 	os.mkdir(os.path.join(os.path.split(direct)[0],'Analysis'))
 
-def Filesort_Siemens():
+def Filesort_Siemens(direct,collapse_dynamics=1):
 	import dicom
 	import glob
 	import os
 	import shutil
 	from tkinter import Tk
 	from tkinter import filedialog
+	from itertools import chain
+	from itertools import groupby
+	from operator import itemgetter
 
-	# First choose a directory for sorting
-	root = Tk()
-	root.withdraw()
-	direct = filedialog.askdirectory(title="select patient directory for sorting")
+	print(direct)
+	# First choose a directory for sorting, if not specified
+	if direct=='':
+		root = Tk()
+		root.withdraw()
+		direct = filedialog.askdirectory(title="select patient directory for sorting")
+	
 	print(direct)
 	direct=os.path.join(direct,'DICOM')
 
@@ -79,8 +85,35 @@ def Filesort_Siemens():
 	for P in glob.glob(os.path.join(direct,'*.txt')):
 		os.remove(P)
 
+	#If vibe images are all saved as separate series, collapse into one for all dynamic run
+	if collapse_dynamics==1:
+		#get a list of VIBE images
+		vibefiles=glob.glob(os.path.join(direct,'*vibe*'))
+		vibefiles=[os.path.basename(Y) for Y in vibefiles]
+		#find the seriesnumbers
+		allvibenums=[int(X.split('_')[0]) for X in vibefiles]
+		vibenums=set(allvibenums)    #get unique seriesnums
+		vibenums=list(vibenums)   #change back to list
+		#group according to consecutive series numbers
+		temp=[list(map(itemgetter(1),g)) for k,g in groupby(enumerate(vibenums),lambda x:x[0]-x[1])]
+		#merge lists for consecutive series groups greater than 20 (note that series 99 is commonly left out!)
+		merged=list(chain.from_iterable([X for X in temp if len(X)>20]))
+		if len(merged)==0: #if there are no long sets of continuous vibe seriesnumbers, sort the rest and exit
+			sort_series(direct)
+			return
+
+		#Find files in the original list that have these numbers
+		dynfiles=[s for s in vibefiles if int(s.split('_')[0]) in merged]
+		#put into a dynamic folder with the series number from the first file
+		os.mkdir(os.path.join(direct,str(min(merged))+'_'+dynfiles[0].split('_')[1])) #make folder with approriate name
+		for Z in dynfiles:
+			os.rename(os.path.join(direct,Z),os.path.join(direct,str(min(merged))+'_'+dynfiles[0].split('_')[1],Z))
+
+
 	# Sort into folders for each series
 	sort_series(direct)
+
+	
 
 
 ###############################################################################################
