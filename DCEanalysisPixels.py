@@ -117,21 +117,39 @@ class patient(object): # patient inherits from the object class
 		# Read the last file to work out size, check for manufacturer and fill out info variables
 		info=dicom.read_file(dynfiles[-1])
 		im=info.pixel_array
-		# Check for Philips data - file numbering different for Siemens
-		if info.Manufacturer!='Philips Medical Systems':
-			print('This is not Philips dynamic data - need to rewrite for Siemens!')
-			return
-
 		# Find pixel sizes and other required dynamic info
 		self.dyninfo=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('tres','f8'),('numtimepoints','i4'),('numslices','i4')])
 		self.dyninfo['pixelsize']=float(info.PixelSpacing[0])
 		self.dyninfo['TR']=float(info.RepetitionTime)
 		self.dyninfo['FlipAngle']=float(info.FlipAngle)
-		numtimepoints=int(info.TemporalPositionIdentifier)
-		self.dyninfo['numtimepoints']=numtimepoints
-		self.dyninfo['tres']=float(info.AcquisitionDuration/numtimepoints)
-		numslices=int(len(dynfiles)/numtimepoints)
-		self.dyninfo['numslices']=numslices
+
+		# Detect Siemens dicom acquired as separate series or Siemens dicom acquired as one series
+		if hasattr(info,"TemporalPositionIdentifier"): # If this tag exists...
+			print(info.TemporalPositionIdentifier)
+			if info.TemporalPositionIdentifier != '': # And it's not empty, the job is easy...
+				print('TemporalPositionIdentifier found')
+				numtimepoints=int(info.TemporalPositionIdentifier)
+				self.dyninfo['numtimepoints']=numtimepoints
+				self.dyninfo['tres']=float(info.AcquisitionDuration/numtimepoints)
+				numslices=int(len(dynfiles)/numtimepoints)
+				self.dyninfo['numslices']=numslices
+			else: #If the tag exists but it's empty, detect the number of series from the names
+				print('TemporalPositionIdentifier empty, using individual series numbers')
+				filenamesonly=[os.path.basename(Y) for Y in dynfiles]
+				dynseriesnums=set([f.split('_')[0] for f in filenamesonly])
+				numtimepoints=len(dynseriesnums)
+				self.dyninfo['numtimepoints']=numtimepoints
+				numslices=np.int(np.ceil(len(dynfiles)/numtimepoints))
+				self.dyninfo['numslices']=numslices			
+				print('WARNING, set tres manually - cannot calculate properly from headers')
+
+		else: # If the tag doesn't exist, get numtimepoints from AcquisitionNumber of last file
+			print('No temporal position identifier tag, using AcquisitionNumber')
+			numtimepoints=int(info.AcquisitionNumber)
+			self.dyninfo['numtimepoints']=numtimepoints
+			self.dyninfo['tres']=float(info[0x0051,0x100a].value.split('TA ')[1])
+			numslices=int(len(dynfiles)/numtimepoints)
+			self.dyninfo['numslices']=numslices
 
 		# Make an array to hold the dynamic data
 		dynims=np.zeros(np.array([im.shape[0],im.shape[1],numslices,numtimepoints]),dtype='uint16')
@@ -139,10 +157,21 @@ class patient(object): # patient inherits from the object class
 		# Read files into the array
 		for i in range(0,len(dynfiles)):
 			temp=dicom.read_file(dynfiles[i]) # Read file
-			timept=temp.TemporalPositionIdentifier-1 # Find temporal position (begin at zero!)
-			slice=int(np.floor(i/numtimepoints)) # Work out slice number (begin at zero!)
-			dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
-
+			if hasattr(temp,"TemporalPositionIdentifier"): #if this exists,
+				if temp.TemporalPositionIdentifier!='': #and it isn't empty
+					temporalpos=temp.TemporalPositionIdentifier #just use it
+				else:
+					# but if not, use the AcquisitionNumber instead
+					temporalpos=temp.AcquisitionNumber
+			timept=temporalpos-1 # Find temporal position (begin at zero!)
+			
+			if temp.Manufacturer=='Philips':
+				slice=int(np.floor(i/numtimepoints)) # Work out slice number (begin at zero!)\
+				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
+			if temp.Manufacturer=='SIEMENS':
+				slice=int(i-timept*numslices)
+				#print(i,slice, timept)
+				dynims[:,:,slice,timept]=temp.pixel_array
 
 		# save this file as an npy array for next time
 		np.save(os.path.join(self.patientdirect,'Analysis','dynamics.npy'),dynims)
@@ -172,8 +201,9 @@ class patient(object): # patient inherits from the object class
 		self.T1info['FlipAngle']=float(info.FlipAngle)
 
 		if info.Manufacturer=='SIEMENS':
-			print('Warning - values for N and TR are probably incorrect for Siemens dicom')
-			print('Setting these to zero, set them manually')
+			print('Warning - values for N and TR may be incorrect for Siemens dicom - check:')
+			print('N = ' + str(self.T1info['N']))
+			print('TR = '+str(self.T1info['TR']))
 			self.T1info['N']=0
 			self.T1info['TR']=0
 
@@ -207,6 +237,7 @@ class patient(object): # patient inherits from the object class
 				T1ims[:,:,z,y]=(temp.pixel_array-si)/ss
 
 		print("T1 measurement image array size is "+str(T1ims.shape))
+		print('Inversion times are '+str(self.T1info['TIs']))
 		self.T1data=T1ims
 
 	# Finally, a method to read all the images
@@ -342,44 +373,8 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.dynmask=np.load(os.path.join(self.patientdirect,'Analysis','dynmask.npy'))
 
-	# def get_T1curves(self):
-	# 	# method to extract T1 curve from T1 images for loaded rois
-	# 	if not hasattr(self,'rois'):
-	# 		print("Read the roi files first - patient.read_rois()")
-	# 		return
-	# 	if not hasattr(self,'T1data'):
-	# 		print("Read in the T1 data first - patient.read_T1data")
-	# 		return
-	# 	curves=np.zeros((self.T1data.shape[3],len(self.rois)))
-	# 	for i in range(0,len(self.rois)):
-	# 		for j in range(0,self.T1data.shape[3]):
-	# 			curves[j,i]=np.sum(self.T1data[:,:,:,j]*self.rois['dynresarray'][i])/np.sum(self.rois['dynresarray'][i])
-	# 	self.T1curves=curves
 
-	# def get_SIcurves(self):
-	# 	# method to extract SI curves for the loaded rois
-	# 	if not hasattr(self,'rois'):
-	# 		print("Read the roi files first - patient.read_rois()")
-	# 		return
-	# 	if not hasattr(self,'dynims'):
-	# 		print("Read in the dynamic data first - patient.read_dynamics")
-	# 		return
-	# 	curves=np.zeros((self.dynims.shape[3],len(self.rois)))
-		
-
-	# 	for i in range(0,len(self.rois)): #for each roi..
-	# 		# add a fourth dimension
-	# 		mask=self.rois['dynresarray'][i]
-	# 		mask.shape=mask.shape+(1,) 
-	# 		# duplicate this mask for all time points using tile
-	# 		ntimepoints=self.dynims.shape[3]
-	# 		bigmask=np.tile(mask,(1,1,1,ntimepoints))
-	# 		#multiply by whole dynamic array, sum over timepoints and divide by mask sum
-	# 		curves[:,i]=np.sum((bigmask*self.dynims),(0,1,2))/np.sum(mask)
-
-	# 	self.SIcurves=curves
-
-	def make_T1map(self): # method to do T1 fitting
+	def make_T1map(self,seqtype='IR'): # method to do T1 fitting, seqtype is either IR or SR
 		if not hasattr(self, 'T1data'):
 			print('Read the T1 data first - patient.read_T1data()')
 			return
@@ -394,7 +389,7 @@ class patient(object): # patient inherits from the object class
 
 		data=np.zeros((self.dynmask.shape+(1,)))
 		data[:,:,:,0]=self.dynmask
-		data=np.tile(data,(1,1,1,5))
+		data=np.tile(data,(1,1,1,len(TIs)))
 		data=self.T1data*data
 
 		for sl in range(self.T1data.shape[2]): #for each slice
@@ -405,7 +400,10 @@ class patient(object): # patient inherits from the object class
 						curve=np.squeeze(data[i,j,sl,:])
 						if np.sum(curve)!=0:
 							curve=curve/np.amax(curve)
-							fit=IRTurboFLASH.fittingfun(TIs,sequenceparams,curve)
+							if seqtype=='IR':
+								fit=IRTurboFLASH.fittingfun(TIs,sequenceparams,curve)
+							else:
+								fit=SRTurboFLASH.fittingfun(TIs,TR,flip,np.ceil(N/2),curve)
 							map[i,j,sl]=fit.x[0]
 		# Save the map
 		np.save(os.path.join(self.patientdirect,'Analysis','T1map.npy'),map)
@@ -419,44 +417,50 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.T1map=np.load(os.path.join(self.patientdirect,'Analysis','T1map.npy'))
 
-	# def SIconvert(self, baselinepts=10): 
-	# 	#Check we have rois and T1s
-	# 	if not hasattr(self,'rois'):
-	# 		print('Read in rois first - patient.read_rois()')
-	# 		return
-	# 	if sum(self.rois['T1'])==0:
-	# 		print('fit T1 first - patient.fit_T1s()')
-	# 		return
-	# 	# Convert flip angle to radians
-	# 	rflip=self.dyninfo['FlipAngle']*np.pi/180
-	# 	#extract TR
-	# 	TR=self.dyninfo['TR']/1000
-	# 	Conccurves=np.zeros(self.SIcurves.shape)
+	
+	def get_iAUC(self, baselinepts=10):
+		#method to calculate iAUC for the pixels within the mask
+		if not hasattr(self,'T1map'):
+			print('Calculate the T1 map first')
+			return
+		if not hasattr(self,'dynims'):
+		 	print('Load the dynamic images first')
+		 	return
 
-	# 	for i in range(0,len(self.rois)):
-	# 		SIcurve=self.SIcurves[:,i]
-	# 		T1base=self.rois['T1'][i]
-	# 		# Convert T1 to R1 in s^-1
-	# 		R1base=1/(T1base/1000)
-	# 		print(R1base)
-	# 		# extract baseline SI and calculate M0
-	# 		base=np.mean(SIcurve[0:baselinepts])
-	# 		print(base)
-	# 		M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
-	# 		print(M0)
-	# 		# Now calculate the R1 curve
-	# 		R1=np.log(((M0*np.sin(rflip))-SIcurve)/(M0*np.sin(rflip)-(SIcurve*np.cos(rflip))))*(-1/TR)
-	# 		# And finally the delta R1 curve
-	# 		Conccurves[:,i]=R1-R1base
+	 	#find TR and flip angle
+		flip=self.dyninfo['FlipAngle']
+		TR=self.dyninfo['TR']/1000
+		tres=self.dyninfo['tres'][0]
+		if tres==0:
+			print('Time resolution is currently zero - correct this before continuing')
+			return
 
-	# 	self.Conccurves=Conccurves
+		iAUC=np.zeros(self.dynmask.shape)
 
-	# def preprocess(self):
-	# 	# function to extract and fit T1 curves, extract SI curves and convert
-	# 	self.get_T1curves()
-	# 	self.get_SIcurves()
-	# 	self.fit_T1s()
-	# 	self.SIconvert()
+		for sl in range(self.dynmask.shape[2]): #for each slice
+			print(sl)
+			if np.sum(self.dynmask[:,:,sl])!=0: #if there are pixels in the slice
+				for i in range(self.dynmask.shape[0]): #loop over rows and cols
+					for j in range(self.dynmask.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								uptakeConc=FLASH.SI2Conc(np.squeeze(self.dynims[i,j,sl,:]),TR,flip,self.T1map[i,j,sl]/1000,baselinepts,None)
+								if np.isnan(np.sum(uptakeConc))==0 and np.sum(uptakeConc)>0:
+									iAUC[i,j,sl]=np.trapz(uptakeConc,dx=tres)
+			plt.figure()
+			plt.imshow(iAUC[:,:,sl])
+
+		# Save the map
+		np.save(os.path.join(self.patientdirect,'Analysis','iAUC.npy'),iAUC)
+		self.iAUC=iAUC
+
+		def load_iAUC(self):
+			#method to load previously made iAUC map
+			if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','iAUC.npy')):
+				print('No iAUC saved')
+				return
+			else:
+				self.iAUC=np.load(os.path.join(self.patientdirect,'Analysis','iAUC.npy'))
+
 
 	# Fitting
 	#####################################################
