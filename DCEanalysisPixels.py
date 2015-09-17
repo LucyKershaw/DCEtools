@@ -163,6 +163,8 @@ class patient(object): # patient inherits from the object class
 				else:
 					# but if not, use the AcquisitionNumber instead
 					temporalpos=temp.AcquisitionNumber
+			else:
+				temporalpos=temp.AcquisitionNumber #And if it doesn't have TemporalPositionIdentifier, use the Acquisition Number
 			timept=temporalpos-1 # Find temporal position (begin at zero!)
 			
 			if temp.Manufacturer=='Philips':
@@ -179,7 +181,7 @@ class patient(object): # patient inherits from the object class
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
-	def read_T1data(self,seriestag,usefolders=range(0,5,1)):
+	def read_T1data(self,seriestag,usefolders=range(0,6,1)):
 		T1Folders=glob.glob(os.path.join(self.dicomdirect,seriestag))
 		if not T1Folders:
 			print('Folder not found')
@@ -319,32 +321,47 @@ class patient(object): # patient inherits from the object class
 		
 	# Initial processing
 	#####################################################
-	def make_mask(self):
+	def make_mask(self, use_dyn=0):
 		#Method to make a binary mask covering the area of interest - use T2w images
-		if not hasattr(self,'T2wims'):
-			print("Read in the T2w data first - patient.read_T2w()")
-			return
+		
+		if use_dyn==1:
+			if not hasattr(self,'dynims'):
+				print("Read in the dynamics first or to use T2w, set use_dyn to 0")
+				return
 
-		# Display the T2w images one at a time and mark roi if required
-		numslices=self.T2wims.shape[2]
-		mask=np.zeros((self.T2wims.shape),dtype='uint16')
+			markupims=self.dynims[:,:,:,-1]
+
+		if use_dyn==0:
+			if not hasattr(self,'T2wims'):
+				print("Read in the T2w data first - patient.read_T2w() or to use dynamics, set use_dyn to 1")
+				return
+
+			markupims=self.T2wims
+
+		# Display the markup images one at a time and mark roi if required
+		numslices=markupims.shape[2]
+		mask=np.zeros((markupims.shape),dtype='uint16')
 
 		for jj in range(numslices):
 			h3=plt.figure()
-			plt.imshow(self.T2wims[:,:,jj],cmap='gray')
+			plt.imshow(markupims[:,:,jj],cmap='gray')
 			useslice=input('Use this slice? 1=yes, 0=no')
 			if int(useslice)==0:
 				plt.close(h3)
 			elif int(useslice)==1:
 				roi=roipoly.roipoly()
 				input('press enter to continue')
-				mask[:,:,jj]=roi.getMask(self.T2wims[:,:,jj])
+				mask[:,:,jj]=roi.getMask(markupims[:,:,jj])
 			else:
 				print('Aborting')
 				return
 
-		self.mask=mask
-		np.save(os.path.join(self.patientdirect,'Analysis','mask.npy'),mask)
+		if use_dyn==1:
+			self.dynmask=mask
+			np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),mask)
+		elif use_dyn==0:
+			self.mask=mask			
+			np.save(os.path.join(self.patientdirect,'Analysis','mask.npy'),mask)
 
 	def convert_mask(self):
 		#Method to convert the T2w mask to the size of the dynamic images
@@ -446,8 +463,8 @@ class patient(object): # patient inherits from the object class
 								uptakeConc=FLASH.SI2Conc(np.squeeze(self.dynims[i,j,sl,:]),TR,flip,self.T1map[i,j,sl]/1000,baselinepts,None)
 								if np.isnan(np.sum(uptakeConc))==0 and np.sum(uptakeConc)>0:
 									iAUC[i,j,sl]=np.trapz(uptakeConc,dx=tres)
-			plt.figure()
-			plt.imshow(iAUC[:,:,sl])
+			#plt.figure()
+			#plt.imshow(iAUC[:,:,sl])
 
 		# Save the map
 		np.save(os.path.join(self.patientdirect,'Analysis','iAUC.npy'),iAUC)

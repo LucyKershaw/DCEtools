@@ -24,7 +24,7 @@ def SIeqn(paramsin,TIs,TR,flip,n):
 def fittingfun(TIs,TR,flip,n,data):
 	startguess=[1000,1500]
 	bnds=((0,3000),(0,1000000)) # Set upper and lower bounds for parameters
-	fit=scipy.optimize.minimize(objfun,startguess,args=(TIs,TR,flip,n,data),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':True,'eps':1e-10,'maxiter':1000})
+	fit=scipy.optimize.minimize(objfun,startguess,args=(TIs,TR,flip,n,data),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'eps':1e-10,'maxiter':1000})
 	return fit
 
 
