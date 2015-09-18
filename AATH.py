@@ -78,7 +78,7 @@ def AATHfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     #print(M0)
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp
-    plt.figure()
+    #plt.figure()
 
     if toff is None:
         firstthird=np.round(len(t)/3)
@@ -90,7 +90,7 @@ def AATHfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
             toff=Ketyresult.x[2]
         print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
         concdata=Kety(Ketyresult.x,t,AIF)
-        plt.plot(t,FLASH.Conc2SI(concdata,TR,flip,T1base,M0),'b')
+        #plt.plot(t,FLASH.Conc2SI(concdata,TR,flip,T1base,M0),'b')
 
     if toff==0:
         AIFnew=AIF
@@ -120,8 +120,8 @@ def AATHfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base):
     print(bestresult)
     #plt.plot(resultsmatrix[:,4])
     #plt.figure()
-    plt.plot(t,uptake,'x')
-    plt.plot(t,FLASH.Conc2SI(AATH(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
+   # plt.plot(t,uptake,'x')
+    #plt.plot(t,FLASH.Conc2SI(AATH(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
 
     return bestresult
 
@@ -132,7 +132,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
     import matplotlib.pyplot as plt
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp from the first third of the curve
-    plt.figure()
+    #plt.figure()
 
     firstthird=np.round(len(t)/3)
     if toff is None:
@@ -142,7 +142,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
         toff=0
         if not np.isnan(Ketyresult.x[2]):
             toff=Ketyresult.x[2]
-        plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
+        #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
         #print(Ketyresult.x)
         print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
     
@@ -156,7 +156,7 @@ def AATHfittingConc(t, AIF, uptake, toff):
     # Parameters to fit are E, Fp, ve
     startguess=[0.5,0.5,0.5]  # Set starting guesses
     bnds=((0.00001,1),(0.00001,10),(0.00001,3)) # Set upper and lower bounds for parameters
-    resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
+    resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array for E, Fp, ve, vp, chi2, toff
 
     for i in range (0,len(vpmatrix)):
         Result=scipy.optimize.minimize(objfunConc,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake),bounds=bnds, method='SLSQP',options={'ftol':1e-14,'disp':False,'eps':1e-14,'maxiter':1000})
@@ -168,8 +168,8 @@ def AATHfittingConc(t, AIF, uptake, toff):
     print(bestresult)
     #plt.plot(resultsmatrix[:,4])
     #plt.figure()
-    plt.plot(t,uptake,'x')
-    plt.plot(t,AATH(bestresult[0:4],t,AIF,toff))
+    #plt.plot(t,uptake,'x')
+    #plt.plot(t,AATH(bestresult[0:4],t,AIF,toff))
     
     return bestresult
 

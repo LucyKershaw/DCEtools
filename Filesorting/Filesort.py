@@ -110,7 +110,7 @@ def Filesort_Siemens(direct,collapse_dynamics=1):
 			sernum=int(Z.split('_')[0])
 			sernum='%03d' % sernum
 			newname=sernum+'_'+Z.split('_')[1]+'_'+Z.split('_')[2]
-			print(newname)
+			#print(newname)
 			os.rename(os.path.join(direct,Z),os.path.join(direct,str(min(merged))+'_'+dynfiles[0].split('_')[1],newname))
 
 
