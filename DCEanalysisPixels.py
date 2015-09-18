@@ -201,7 +201,7 @@ class patient(object): # patient inherits from the object class
 		self.T1info['FlipAngle']=float(info.FlipAngle)
 
 		if info.Manufacturer=='SIEMENS':
-			print('Warning - values for N and TR may be incorrect for Siemens dicom - check:')
+			print('Warning - values for N and TR may be incorrect for Siemens dicom - setting to zero, please check:')
 			print('N = ' + str(self.T1info['N']))
 			print('TR = '+str(self.T1info['TR']))
 			self.T1info['N']=0
