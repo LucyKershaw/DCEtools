@@ -168,12 +168,12 @@ class patient(object): # patient inherits from the object class
 			timept=temporalpos-1 # Find temporal position (begin at zero!)
 			
 			if temp.Manufacturer=='Philips':
-				slice=int(np.floor(i/numtimepoints)) # Work out slice number (begin at zero!)\
+				slice=int(np.floor(i/numtimepoints)) # Work out slice number for Philips (begin at zero!) 
 				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
 			if temp.Manufacturer=='SIEMENS':
-				slice=int(i-timept*numslices)
+				slice=int(i-timept*numslices) # Work out the slice number for Siemens
 				#print(i,slice, timept)
-				dynims[:,:,slice,timept]=temp.pixel_array
+				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
 
 		# save this file as an npy array for next time
 		np.save(os.path.join(self.patientdirect,'Analysis','dynamics.npy'),dynims)
@@ -435,8 +435,8 @@ class patient(object): # patient inherits from the object class
 			self.T1map=np.load(os.path.join(self.patientdirect,'Analysis','T1map.npy'))
 
 	
-	def get_iAUC(self, baselinepts=10):
-		#method to calculate iAUC for the pixels within the mask
+	def get_iAUC(self, save=1, baselinepts=10):
+		#method to calculate iAUC for the pixels within the mask, set save to 1 to save to a file
 		if not hasattr(self,'T1map'):
 			print('Calculate the T1 map first')
 			return
@@ -466,17 +466,19 @@ class patient(object): # patient inherits from the object class
 			#plt.figure()
 			#plt.imshow(iAUC[:,:,sl])
 
-		# Save the map
-		np.save(os.path.join(self.patientdirect,'Analysis','iAUC.npy'),iAUC)
+		# Save the map if requested:
+		if save==1:
+			np.save(os.path.join(self.patientdirect,'Analysis','iAUC.npy'),iAUC)
+		
 		self.iAUC=iAUC
 
-		def load_iAUC(self):
-			#method to load previously made iAUC map
-			if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','iAUC.npy')):
-				print('No iAUC saved')
-				return
-			else:
-				self.iAUC=np.load(os.path.join(self.patientdirect,'Analysis','iAUC.npy'))
+	def load_iAUC(self):
+		#method to load previously made iAUC map
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','iAUC.npy')):
+			print('No iAUC saved')
+			return
+		else:
+			self.iAUC=np.load(os.path.join(self.patientdirect,'Analysis','iAUC.npy'))
 
 
 	# Fitting
@@ -669,54 +671,282 @@ class patient(object): # patient inherits from the object class
 			self.TwoCUMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy'))
 
 
-
-	def write_maps(self,dynfoldertag,mapname):
-		# Method to save specified maps to dicom
+	def write_iAUC(self, dynfoldertag):
+		import time
+		# Method to write iAUC to a dicom files, setting tags appropriately
+		# Basetags folder tag is the tag for the dynamic series from which we will borrow slice positions etc
+		
 		DynFolder=glob.glob(os.path.join(self.dicomdirect,dynfoldertag))
-		print(os.path.join(self.dicomdirect,dynfoldertag))
-		print(DynFolder)
+		print('Borrowing dicom headers from here:')
+		print(os.path.join(self.dicomdirect,DynFolder[0]))
 		os.chdir(DynFolder[0])
 		
-		filenames=glob.glob('*.dcm')
-		numfiles=len(filenames)
-		maps=getattr(self,mapname)
+		#Borrowing headers from the first dynamic volume
+		filenames=glob.glob('*.dcm') # Find all dicom files in the folder
+		iAUC=self.iAUC # Get the iAUC map to be written
+		numslices=iAUC.shape[2] # Find the number of slices in the map
 
-		for i in range(maps.shape[2]):
-			tmp=dicom.read_file(filenames[int(numfiles/(maps.shape[2]))*i])
-			Fpimage=abs(maps[:,:,i,1]*60*100)
-			Fpimage=Fpimage*(Fpimage<100)
-			#print(Fpimage.dtype)
-			Fpimage=Fpimage.astype('uint16')
-			tmp.PixelData=Fpimage.tostring()
-			dicom.write_file('Fp_'+str(i+1)+'.dcm',tmp)
-			PSimage=abs(-1*np.log(1-maps[:,:,i,0])*maps[:,:,i,1])*60*100
-			PSimage=PSimage*(PSimage<100)
-			PSimage=PSimage.astype('uint16')
-			tmp.PixelData=PSimage.tostring()
-			dicom.write_file('PS_'+str(i+1)+'.dcm',tmp)
-			Ktransimage=abs(maps[:,:,i,0]*maps[:,:,i,1])*60*100
-			Ktransimage=Ktransimage*(Ktransimage<100)
-			Ktransimage=Ktransimage.astype('uint16')
-			tmp.PixelData=Ktransimage.tostring()
-			dicom.write_file('Ktrans_'+str(i+1)+'.dcm',tmp)
+		#Read first file and check for Siemens or Philips
+		tmp=dicom.read_file(filenames[0])
 
-		newfiles=glob.glob('Fp*')
-		os.mkdir('Fp')
+		if tmp[0x08,0x70]=='SIEMENS': # If SIEMENS, use the first (numslices) files, this will be the first dynamic volume
+			filenames=filenames[0:numslices]
+		elif tmp[0x08,0x70]=='Philips Medical Systems': # If Philips, find time points and use this to extract one dynamic volume
+			timepoints=int(len(filenames)/numslices)
+			filenames=filenames[0::timepoints]
+		else:
+			print('Unknown manufacturer')
+			return
+
+		#Make new series UID, creation time and date
+		Seriesdate=time.strftime('%Y%m%d')
+		Seriestime=time.strftime('%H%M%S')
+		SeriesUID=dicom.UID.generate_uid()
+
+		for i in range(numslices):
+			#Read original dicom
+			tmp=dicom.read_file(filenames[i])
+			
+			#Prepare iAUC map for this slice
+			map=iAUC[:,:,i]
+			map=abs(map)
+			#Remove values above 99th centile
+			mapupperlim=np.percentile(map[map>0],99)
+			map[map>mapupperlim]=mapupperlim
+			map=map.astype('uint16')
+			tmp.PixelData=map.tostring()
+
+			# Set new header values
+			tmp[0x08,0x08].value='DERIVED' #Image Type
+			tmp[0x08,0x12].value=Seriesdate #Creation date
+			tmp[0x08,0x13].value=Seriestime #Creation time
+			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+			tmp[0x08,0x70].value='' # Manufacturer name
+			tmp[0x08,0x1090].value='' # Manufacturer model
+			tmp[0x08,0x103E].value='iAUC_map' # Description
+			tmp[0x20,0x0e].value=SeriesUID # Series UID
+			tmp[0x20,0x11].value=str(tmp[0x20,0x11].value)+'001' # Series number
+			if tmp[0x08,0x70]=='SIEMENS':
+				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only
+
+
+			#Write the file
+			dicom.write_file(str(tmp[0x20,0x11].value)+'_iAUC_'+str(i+1)+'.dcm',tmp)
+
+		# Make a new folder and put these files into it
+		newfiles=glob.glob('*iAUC*')
+		newfoldername=str(tmp[0x20,0x11].value)+'_iAUC'
+		print(newfoldername)
+		os.mkdir(newfoldername)
 		for x in newfiles:
-			os.rename(x,os.path.join('Fp',x))
-		shutil.move('Fp','..')
+			os.rename(x,os.path.join(newfoldername,x))
+		shutil.move(newfoldername,'..')
+
+	def write_maps(self,dynfoldertag,mapname):
+		import time
+		# Method to save specified maps (i.e. AATH, 2CXM, conc, SI etc) to dicom
+		DynFolder=glob.glob(os.path.join(self.dicomdirect,dynfoldertag))		
+		print('Borrowing dicom headers from here:')
+		print(os.path.join(self.dicomdirect,DynFolder[0]))
+		os.chdir(DynFolder[0])
 		
-		newfiles=glob.glob('PS*')
-		os.mkdir('PS')
-		for x in newfiles:
-			os.rename(x,os.path.join('PS',x))
-		shutil.move('PS','..')
+		#Borrowing headers from the first dynamic volume
+		filenames=glob.glob('*.dcm') # Find all dicom files in the folder
+		maps=getattr(self,mapname)
+		numslices=maps.shape[2] # Find the number of slices in the map
+		nummaps=maps.shape[-1] # Find the number of maps to write out
 
-		newfiles=glob.glob('Ktrans*')
-		os.mkdir('Ktrans')
+		#Read first file and check for Siemens or Philips
+		tmp=dicom.read_file(filenames[0])
+
+		if tmp[0x08,0x70].value=='SIEMENS': # If SIEMENS, use the first (numslices) files, this will be the first dynamic volume
+			filenames=filenames[0:numslices]
+		elif tmp[0x08,0x70].value=='Philips Medical Systems': # If Philips, find time points and use this to extract one dynamic volume
+			timepoints=int(len(filenames)/numslices)
+			filenames=filenames[0::timepoints]
+		else:
+			print('Unknown manufacturer')
+			return
+
+		#Get original series number and new times and Series UIDs for each map
+		SeriesUIDs=[None]*6
+		SeriesUIDs[0]=dicom.UID.generate_uid() #Must be done in separate calls with a pause, or it's all the same one!
+		time.sleep(3)
+		SeriesUIDs[1]=dicom.UID.generate_uid()
+		time.sleep(3)
+		SeriesUIDs[2]=dicom.UID.generate_uid()
+		time.sleep(3)
+		SeriesUIDs[3]=dicom.UID.generate_uid()
+		time.sleep(3)
+		SeriesUIDs[4]=dicom.UID.generate_uid()
+		time.sleep(3)
+		SeriesUIDs[5]=dicom.UID.generate_uid()
+		print(SeriesUIDs)
+
+		Seriesdate=time.strftime('%Y%m%d')
+		Seriestime=time.strftime('%H%M%S')
+		OriginalSeriesNum=str(tmp[0x20,0x11].value)
+		print(OriginalSeriesNum)
+
+		for i in range(numslices):
+			#Read original dicom and set new header values that apply to all maps
+			tmp=dicom.read_file(filenames[i])
+			tmp[0x08,0x08].value='DERIVED' #Image Type		
+			tmp[0x08,0x70].value='' # Manufacturer name
+			tmp[0x08,0x1090].value='' # Manufacturer model
+
+			#Prepare maps for this slice
+			#E
+			Emap=abs(maps[:,:,i,0])*100 #E in %
+			Emap[Emap>150]=150 # Remove anything above 150
+			Emap=Emap.astype('uint16')
+			#Set the pixel data and remaining header values
+			tmp.PixelData=Emap.tostring()
+			tmp[0x08,0x12].value=Seriesdate #Creation date
+			tmp[0x08,0x13].value=Seriestime #Creation time	
+			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+			tmp[0x08,0x103E].value='E_map' # Description
+			tmp[0x20,0x0e].value=SeriesUIDs[0] # Series UID
+			tmp[0x20,0x11].value=OriginalSeriesNum+'001' # Series number
+			if tmp[0x08,0x70].value=='SIEMENS':
+				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only
+			#Write the file
+			dicom.write_file(str(tmp[0x20,0x11].value)+'_E_'+str(i+1)+'.dcm',tmp)
+
+			#Fp
+			Fpmap=abs(maps[:,:,i,1])*100*60 #Fp in ml/100ml/min 
+			if np.sum(Fpmap>0):
+				Fpmapupperlim=np.percentile(Fpmap[Fpmap>0],99) #Remove values above 99th centile
+				Fpmap[Fpmap>Fpmapupperlim]=Fpmapupperlim
+			Fpmap=Fpmap.astype('uint16')
+			#Set the pixel data and remaining header values
+			tmp.PixelData=Fpmap.tostring()
+			tmp[0x08,0x12].value=Seriesdate #Creation date
+			tmp[0x08,0x13].value=Seriestime #Creation time	
+			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+			tmp[0x08,0x103E].value='Fp_map' # Description
+			tmp[0x20,0x0e].value=SeriesUIDs[1] # Series UID
+			tmp[0x20,0x11].value=OriginalSeriesNum+'002' # Series number
+			if tmp[0x08,0x70].value=='SIEMENS':
+				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only
+			#Write the file
+			dicom.write_file(str(tmp[0x20,0x11].value)+'_Fp_'+str(i+1)+'.dcm',tmp)
+
+			#ve
+			if nummaps==6:
+				vemap=abs(maps[:,:,i,2])*100 #ve in %
+				vemap[vemap>150]=150 #Remove anything above 150
+				vemap=vemap.astype('uint16')
+				#Set the pixel data and remaining header values
+				tmp.PixelData=vemap.tostring()
+				tmp[0x08,0x12].value=Seriesdate #Creation date
+				tmp[0x08,0x13].value=Seriestime #Creation time	
+				tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+				tmp[0x08,0x103E].value='ve_map' # Description
+				tmp[0x20,0x0e].value=SeriesUIDs[2] # Series UID
+				tmp[0x20,0x11].value=OriginalSeriesNum+'003' # Series number
+				if tmp[0x08,0x70].value=='SIEMENS':
+					tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+					tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only		
+				#Write the file
+				dicom.write_file(str(tmp[0x20,0x11].value)+'_ve_'+str(i+1)+'.dcm',tmp)
+
+			#vp
+			vpmap=abs(maps[:,:,i,-3])*100 #vp in %
+			vpmap[vpmap>150]=150 #Remove anything above 150
+			vpmap=vpmap.astype('uint16')
+			#Set the pixel data and remaining header values
+			tmp.PixelData=vpmap.tostring()
+			tmp[0x08,0x12].value=Seriesdate #Creation date
+			tmp[0x08,0x13].value=Seriestime #Creation time	
+			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+			tmp[0x08,0x103E].value='vp_map' # Description
+			tmp[0x20,0x0e].value=SeriesUIDs[-3] # Series UID
+			tmp[0x20,0x11].value=OriginalSeriesNum+'004' # Series number
+			if tmp[0x08,0x70].value=='SIEMENS':
+				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only		
+			#Write the file
+			dicom.write_file(str(tmp[0x20,0x11].value)+'_vp_'+str(i+1)+'.dcm',tmp)	
+
+			#toff
+			toffmap=abs(maps[:,:,i,-1])*1000 #toff in milliseconds (max was 20 or 30 s)
+			toffmap[toffmap>30000]=30000 #Remove anything above 30000 ms
+			toffmap=toffmap.astype('uint16')
+			#Set the pixel data and remaining header values
+			tmp.PixelData=toffmap.tostring()
+			tmp[0x08,0x12].value=Seriesdate #Creation date
+			tmp[0x08,0x13].value=Seriestime #Creation time	
+			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+			tmp[0x08,0x103E].value='toff_map' # Description
+			tmp[0x20,0x0e].value=SeriesUIDs[-1] # Series UID
+			tmp[0x20,0x11].value=OriginalSeriesNum+'005' # Series number
+			if tmp[0x08,0x70].value=='SIEMENS':
+				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only				
+			#Write the file
+			dicom.write_file(str(tmp[0x20,0x11].value)+'_toff_'+str(i+1)+'.dcm',tmp)
+
+			#PS
+			PSmap=abs(-1*np.log(1-maps[:,:,i,0])*maps[:,:,i,1])*60*100 #PS in ml/100ml/min
+			if np.sum(PSmap>0):
+				PSmapupperlim=np.percentile(PSmap[PSmap>0],99) #Remove values above 99th percentile
+				PSmap[PSmap>PSmapupperlim]=PSmapupperlim
+			PSmap=PSmap.astype('uint16')
+			#Set the pixel data and remaining header values
+			tmp.PixelData=PSmap.tostring()
+			tmp[0x08,0x12].value=Seriesdate #Creation date
+			tmp[0x08,0x13].value=Seriestime #Creation time	
+			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
+			tmp[0x08,0x103E].value='PS_map' # Description
+			tmp[0x20,0x0e].value=SeriesUIDs[-2] # Series UID
+			tmp[0x20,0x11].value=OriginalSeriesNum+'006' # Series number
+			if tmp[0x08,0x70].value=='SIEMENS':
+				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
+				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only	
+			#Write the file
+			dicom.write_file(str(tmp[0x20,0x11].value)+'_PS_'+str(i+1)+'.dcm',tmp)
+
+		newfiles=glob.glob('*_E_*')
+		os.mkdir(OriginalSeriesNum+'001_E')
 		for x in newfiles:
-			os.rename(x,os.path.join('Ktrans',x))
-		shutil.move('Ktrans','..')
+			os.rename(x,os.path.join(OriginalSeriesNum+'001_E',x))
+		shutil.move(OriginalSeriesNum+'001_E','..')
+
+		newfiles=glob.glob('*_Fp_*')
+		os.mkdir(OriginalSeriesNum+'002_Fp')
+		for x in newfiles:
+			os.rename(x,os.path.join(OriginalSeriesNum+'002_Fp',x))
+		shutil.move(OriginalSeriesNum+'002_Fp','..')
+
+		if nummaps==6:
+			newfiles=glob.glob('*_ve_*')
+			os.mkdir(OriginalSeriesNum+'003_ve')
+			for x in newfiles:
+				os.rename(x,os.path.join(OriginalSeriesNum+'003_ve',x))
+			shutil.move(OriginalSeriesNum+'003_ve','..')
+
+		newfiles=glob.glob('*_vp_*')
+		os.mkdir(OriginalSeriesNum+'004_vp')
+		for x in newfiles:
+			os.rename(x,os.path.join(OriginalSeriesNum+'004_vp',x))
+		shutil.move(OriginalSeriesNum+'004_vp','..')
+		
+		newfiles=glob.glob('*_toff_*')
+		os.mkdir(OriginalSeriesNum+'005_toff')
+		for x in newfiles:
+			os.rename(x,os.path.join(OriginalSeriesNum+'005_toff',x))
+		shutil.move(OriginalSeriesNum+'005_toff','..')
+
+		newfiles=glob.glob('*_PS_*')
+		os.mkdir(OriginalSeriesNum+'006_PS')
+		for x in newfiles:
+			os.rename(x,os.path.join(OriginalSeriesNum+'006_PS',x))
+		shutil.move(OriginalSeriesNum+'006_PS','..')
+
 
 	def fit_TH(self):
 		pass
