@@ -689,18 +689,18 @@ class patient(object): # patient inherits from the object class
 		#Read first file and check for Siemens or Philips
 		tmp=dicom.read_file(filenames[0])
 
-		if tmp[0x08,0x70]=='SIEMENS': # If SIEMENS, use the first (numslices) files, this will be the first dynamic volume
+		if tmp[0x08,0x70].value=='SIEMENS': # If SIEMENS, use the first (numslices) files, this will be the first dynamic volume
 			filenames=filenames[0:numslices]
-		elif tmp[0x08,0x70]=='Philips Medical Systems': # If Philips, find time points and use this to extract one dynamic volume
+		elif tmp[0x08,0x70].value=='Philips Medical Systems': # If Philips, find time points and use this to extract one dynamic volume
 			timepoints=int(len(filenames)/numslices)
 			filenames=filenames[0::timepoints]
 		else:
 			print('Unknown manufacturer')
 			return
 
-		#Make new series UID, creation time and date
-		Seriesdate=time.strftime('%Y%m%d')
+		#Make new series UID, creation time and date)
 		Seriestime=time.strftime('%H%M%S')
+		Seriesdate=time.strftime('%Y%m%d')
 		SeriesUID=dicom.UID.generate_uid()
 
 		for i in range(numslices):
