@@ -321,7 +321,7 @@ class patient(object): # patient inherits from the object class
 		
 	# Initial processing
 	#####################################################
-	def make_mask(self, use_dyn=0):
+	def make_mask(self, use_dyn=0, tightmask=0):
 		#Method to make a binary mask covering the area of interest - use T2w images
 		
 		if use_dyn==1:
@@ -357,30 +357,57 @@ class patient(object): # patient inherits from the object class
 				return
 
 		if use_dyn==1:
-			self.dynmask=mask
-			np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),mask)
+			if tightmask==0:
+				print("Saving dynmask")
+				self.dynmask=mask
+				np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),mask)
+			if tightmask==1:
+				print("Saving dyntightmask")
+				self.dyntightmask=mask
+				np.save(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'),mask)
 		elif use_dyn==0:
-			self.mask=mask			
-			np.save(os.path.join(self.patientdirect,'Analysis','mask.npy'),mask)
+			if tightmask==0:
+				print("Saving mask - don't forget to convert to dynamic size")
+				self.mask=mask			
+				np.save(os.path.join(self.patientdirect,'Analysis','mask.npy'),mask)
+			if tightmask==1:
+				print("Saving tightmask - don't forget to convert to dynamic size")
+				self.tightmask=mask
+				np.save(os.path.join(self.patientdirect,'Analysis','tightmask.npy'),mask)
 
-	def convert_mask(self):
+
+	def convert_mask(self,tightmask=0):
 		#Method to convert the T2w mask to the size of the dynamic images
 		if not hasattr(self,'dyninfo'):
 			print('Need dynamic data to convert the mask')
 			return
 		
-		if not hasattr(self,'mask'):
-			print('No mask defined yet')
-			return
+		if tightmask==1:
+			if not hasattr(self,'tightmask'):
+				print('need to make a tightmask first')
+				return
+
+		elif tightmask==0:
+			if not hasattr(self,'mask'):
+				print('No mask defined yet')
+				return
 		
 		smallmask=np.zeros(self.dynims.shape[0:3],dtype='uint16')
 		numslices=self.dynims.shape[2]
+		if tightmask==0:
+			largemask=self.mask
+		if tightmask==1:
+			largemask=self.tightmask
 
 		for kk in range(numslices):
-			smallmask[:,:,kk]=scipy.misc.imresize(self.mask[:,:,kk],self.dynims.shape[0:2],interp='nearest')/255
+			smallmask[:,:,kk]=scipy.misc.imresize(largemask[:,:,kk],self.dynims.shape[0:2],interp='nearest')/255
 
-		self.dynmask=smallmask
-		np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),smallmask)
+		if tightmask==0:
+			self.dynmask=smallmask
+			np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),smallmask)
+		elif tightmask==1:
+			self.dyntightmask=smallmask
+			np.save(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'),smallmask)
 
 	def load_mask(self):
 		#method to load previously made dynamic mask
@@ -389,6 +416,14 @@ class patient(object): # patient inherits from the object class
 			return
 		else:
 			self.dynmask=np.load(os.path.join(self.patientdirect,'Analysis','dynmask.npy'))
+
+	def load_tightmask(self):
+		#method to load previously made tight dynamic mask
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy')):
+			print('No dynamic tight mask saved')
+			return
+		else:
+			self.dyntightmask=np.load(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'))
 
 
 	def make_T1map(self,seqtype='IR'): # method to do T1 fitting, seqtype is either IR or SR
@@ -461,8 +496,9 @@ class patient(object): # patient inherits from the object class
 					for j in range(self.dynmask.shape[1]):
 							if self.dynmask[i,j,sl]==1:
 								uptakeConc=FLASH.SI2Conc(np.squeeze(self.dynims[i,j,sl,:]),TR,flip,self.T1map[i,j,sl]/1000,baselinepts,None)
-								if np.isnan(np.sum(uptakeConc))==0 and np.sum(uptakeConc)>0:
+								if np.sum(np.isnan(uptakeConc))==0 and np.sum(uptakeConc)>0:
 									iAUC[i,j,sl]=np.trapz(uptakeConc,dx=tres)
+
 			#plt.figure()
 			#plt.imshow(iAUC[:,:,sl])
 
@@ -472,6 +508,7 @@ class patient(object): # patient inherits from the object class
 		
 		self.iAUC=iAUC
 
+
 	def load_iAUC(self):
 		#method to load previously made iAUC map
 		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','iAUC.npy')):
@@ -479,6 +516,46 @@ class patient(object): # patient inherits from the object class
 			return
 		else:
 			self.iAUC=np.load(os.path.join(self.patientdirect,'Analysis','iAUC.npy'))
+
+	def get_EnhancingFraction(self, save=1, baselinepts=10):
+		#Method for enhancing fraction calculation
+		if not hasattr(self,'dynims'):
+			print("Use load_dynamics to load the dynamic images first")
+			return
+		if not hasattr(self,'dyntightmask'):
+			print("make a tight mask over the tumour first, and convert to dynamic size")
+			return
+
+		#Find the sd in the baseline
+		baselinestd=np.std(self.dynims[:,:,:,1:baselinepts],3)
+		#plt.figure()
+		#plt.imshow(baselinestd[:,:,10]*self.dyntightmask[:,:,10],interpolation='nearest')
+		#plt.colorbar()
+
+		#Find the mean std over the mask pixels
+		numtightmaskpixels=np.sum(self.dyntightmask:
+		meanbaselinestd=np.sum(baselinestd*self.dyntightmask)/numtightmaskpixels
+		print('pixels in mask = '+str(numtightmaskpixels))
+		print('baseline sd = '+str(meanbaselinestd))
+		threshold=meanbaselinestd*25
+		print('threshold = '+str(threshold))
+
+		#Find the maximum enhancement then mask to tightmask
+		maxenhancement=np.ndarray.max(self.dynims,3)
+		maxenhancement=maxenhancement*self.dyntightmask
+		#plt.figure()
+		#plt.imshow(maxenhancement[:,:,10],vmax=200,interpolation='nearest')
+		#plt.colorbar()
+
+		#Threshold on mean baseline *3
+		numenhancingpixels=np.sum(maxenhancement>threshold)
+		print('number of enhancing pixels = '+str(numenhancingpixels))
+		EnhancingFraction=numenhancingpixels/numtightmaskpixels
+		print('Enhancing Fraction = '+str(EnhancingFraction))
+		
+		self.EnhancingFraction=EnhancingFraction
+		self.MaxEnhancement=maxenhancement
+
 
 
 	# Fitting
@@ -774,20 +851,20 @@ class patient(object): # patient inherits from the object class
 		SeriesUIDs[0]=dicom.UID.generate_uid() #Must be done in separate calls with a pause, or it's all the same one!
 		time.sleep(3)
 		SeriesUIDs[1]=dicom.UID.generate_uid()
-		time.sleep(3)
+		time.sleep(2)
 		SeriesUIDs[2]=dicom.UID.generate_uid()
 		time.sleep(3)
 		SeriesUIDs[3]=dicom.UID.generate_uid()
-		time.sleep(3)
+		time.sleep(2)
 		SeriesUIDs[4]=dicom.UID.generate_uid()
 		time.sleep(3)
 		SeriesUIDs[5]=dicom.UID.generate_uid()
-		print(SeriesUIDs)
+		#print(SeriesUIDs)
 
 		Seriesdate=time.strftime('%Y%m%d')
 		Seriestime=time.strftime('%H%M%S')
 		OriginalSeriesNum=str(tmp[0x20,0x11].value)
-		print(OriginalSeriesNum)
+		#print(OriginalSeriesNum)
 
 		for i in range(numslices):
 			#Read original dicom and set new header values that apply to all maps
@@ -816,7 +893,7 @@ class patient(object): # patient inherits from the object class
 			dicom.write_file(str(tmp[0x20,0x11].value)+'_E_'+str(i+1)+'.dcm',tmp)
 
 			#Fp
-			Fpmap=abs(maps[:,:,i,1])*100*60 #Fp in ml/100ml/min 
+			Fpmap=abs(maps[:,:,i,1])*100*60*100 #Fp in ml/100ml/min multiplied by 100
 			if np.sum(Fpmap>0):
 				Fpmapupperlim=np.percentile(Fpmap[Fpmap>0],99) #Remove values above 99th centile
 				Fpmap[Fpmap>Fpmapupperlim]=Fpmapupperlim
@@ -891,7 +968,7 @@ class patient(object): # patient inherits from the object class
 			dicom.write_file(str(tmp[0x20,0x11].value)+'_toff_'+str(i+1)+'.dcm',tmp)
 
 			#PS
-			PSmap=abs(-1*np.log(1-maps[:,:,i,0])*maps[:,:,i,1])*60*100 #PS in ml/100ml/min
+			PSmap=abs(-1*np.log(1-maps[:,:,i,0])*maps[:,:,i,1])*60*100*100 #PS in 100*ml/100ml/min
 			if np.sum(PSmap>0):
 				PSmapupperlim=np.percentile(PSmap[PSmap>0],99) #Remove values above 99th percentile
 				PSmap[PSmap>PSmapupperlim]=PSmapupperlim
@@ -910,43 +987,65 @@ class patient(object): # patient inherits from the object class
 			#Write the file
 			dicom.write_file(str(tmp[0x20,0x11].value)+'_PS_'+str(i+1)+'.dcm',tmp)
 
+		dicomdirect=self.patientdirect+'/DICOM'
 		newfiles=glob.glob('*_E_*')
-		os.mkdir(OriginalSeriesNum+'001_E')
+		dirname=OriginalSeriesNum+'001_E'
+		os.mkdir(dirname)
 		for x in newfiles:
-			os.rename(x,os.path.join(OriginalSeriesNum+'001_E',x))
-		shutil.move(OriginalSeriesNum+'001_E','..')
+			os.rename(x,os.path.join(dirname,x))	
+		
+		print(os.path.exists(dicomdirect+'/'+dirname))	
+		if os.path.exists(dicomdirect+'/'+dirname):
+			print('Removing old maps')
+			shutil.rmtree(os.path.join(dicomdirect,dirname))
+		shutil.move(dirname,'..')
 
 		newfiles=glob.glob('*_Fp_*')
-		os.mkdir(OriginalSeriesNum+'002_Fp')
+		dirname=OriginalSeriesNum+'002_Fp'
+		os.mkdir(dirname)
 		for x in newfiles:
-			os.rename(x,os.path.join(OriginalSeriesNum+'002_Fp',x))
-		shutil.move(OriginalSeriesNum+'002_Fp','..')
+			os.rename(x,os.path.join(dirname,x))
+		if os.path.exists(dicomdirect+'/'+dirname):
+			shutil.rmtree(os.path.join(dicomdirect,dirname))
+		shutil.move(dirname,'..')
 
 		if nummaps==6:
 			newfiles=glob.glob('*_ve_*')
-			os.mkdir(OriginalSeriesNum+'003_ve')
+			dirname=OriginalSeriesNum+'003_ve'
+			os.mkdir(dirname)
 			for x in newfiles:
-				os.rename(x,os.path.join(OriginalSeriesNum+'003_ve',x))
-			shutil.move(OriginalSeriesNum+'003_ve','..')
+				os.rename(x,os.path.join(dirname,x))
+			if os.path.exists(dicomdirect+'/'+dirname):
+				shutil.rmtree(os.path.join(dicomdirect,dirname))
+			shutil.move(dirname,'..')
 
 		newfiles=glob.glob('*_vp_*')
-		os.mkdir(OriginalSeriesNum+'004_vp')
+		dirname=OriginalSeriesNum+'004_vp'
+		os.mkdir(dirname)
 		for x in newfiles:
-			os.rename(x,os.path.join(OriginalSeriesNum+'004_vp',x))
-		shutil.move(OriginalSeriesNum+'004_vp','..')
+			os.rename(x,os.path.join(dirname,x))
+		if os.path.exists(dicomdirect+'/'+dirname):
+			shutil.rmtree(os.path.join(dicomdirect,dirname))
+		shutil.move(dirname,'..')
 		
 		newfiles=glob.glob('*_toff_*')
-		os.mkdir(OriginalSeriesNum+'005_toff')
+		dirname=OriginalSeriesNum+'005_toff'
+		os.mkdir(dirname)
 		for x in newfiles:
-			os.rename(x,os.path.join(OriginalSeriesNum+'005_toff',x))
-		shutil.move(OriginalSeriesNum+'005_toff','..')
+			os.rename(x,os.path.join(dirname,x))
+		if os.path.exists(dicomdirect+'/'+dirname):
+			shutil.rmtree(os.path.join(dicomdirect,dirname))
+		shutil.move(dirname,'..')
 
 		newfiles=glob.glob('*_PS_*')
-		os.mkdir(OriginalSeriesNum+'006_PS')
+		dirname=OriginalSeriesNum+'006_PS'
+		os.mkdir(dirname)
 		for x in newfiles:
-			os.rename(x,os.path.join(OriginalSeriesNum+'006_PS',x))
-		shutil.move(OriginalSeriesNum+'006_PS','..')
-
+			os.rename(x,os.path.join(dirname,x))
+		if os.path.exists(dicomdirect+'/'+dirname):
+			shutil.rmtree(os.path.join(dicomdirect,dirname))
+		shutil.move(dirname,'..')
+		
 
 	def fit_TH(self):
 		pass
