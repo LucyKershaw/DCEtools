@@ -517,7 +517,7 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.iAUC=np.load(os.path.join(self.patientdirect,'Analysis','iAUC.npy'))
 
-	def get_EnhancingFraction(self, save=1, baselinepts=10):
+	def get_EnhancingFraction(self, save=1, baselinepts=10, threshold=0):
 		#Method for enhancing fraction calculation
 		if not hasattr(self,'dynims'):
 			print("Use load_dynamics to load the dynamic images first")
@@ -526,6 +526,7 @@ class patient(object): # patient inherits from the object class
 			print("make a tight mask over the tumour first, and convert to dynamic size")
 			return
 
+
 		#Find the sd in the baseline
 		baselinestd=np.std(self.dynims[:,:,:,1:baselinepts],3)
 		#plt.figure()
@@ -533,11 +534,14 @@ class patient(object): # patient inherits from the object class
 		#plt.colorbar()
 
 		#Find the mean std over the mask pixels
-		numtightmaskpixels=np.sum(self.dyntightmask:
+		numtightmaskpixels=np.sum(self.dyntightmask)
 		meanbaselinestd=np.sum(baselinestd*self.dyntightmask)/numtightmaskpixels
 		print('pixels in mask = '+str(numtightmaskpixels))
 		print('baseline sd = '+str(meanbaselinestd))
-		threshold=meanbaselinestd*25
+		
+		#Calculate threshold
+		if threshold==0:
+			threshold=meanbaselinestd*25
 		print('threshold = '+str(threshold))
 
 		#Find the maximum enhancement then mask to tightmask
@@ -556,7 +560,70 @@ class patient(object): # patient inherits from the object class
 		self.EnhancingFraction=EnhancingFraction
 		self.MaxEnhancement=maxenhancement
 
+def get_EnhancingFractionConc(self, save=1, baselinepts=10, threshold=0):
+		#Method for enhancing fraction calculation but with concentration rather than SI
+		if not hasattr(self,'dynims'):
+			print("Use load_dynamics to load the dynamic images first")
+			return
+		if not hasattr(self,'dyntightmask'):
+			print("make a tight mask over the tumour first, and convert to dynamic size")
+			return
+		if not hasattr(self,'T1map'):
+			print('Calculate the T1 map first')
+			return
 
+		#Make an array to hold the concentration curves:
+
+		Conccurves=np.zeros(self.dynims.shape)
+
+
+		#find TR and flip angle
+		flip=self.dyninfo['FlipAngle']
+		TR=self.dyninfo['TR']/1000
+		tres=self.dyninfo['tres'][0]
+		if tres==0:
+			print('Time resolution is currently zero - correct this before continuing')
+			return
+
+		#Loop through to convert to concentration
+		for sl in range(self.dyntightmask.shape[2]): #for each slice
+			print(sl)
+			if np.sum(self.dytightnmask[:,:,sl])!=0: #if there are pixels in the slice
+				for i in range(self.dyntightmask.shape[0]): #loop over rows and cols
+					for j in range(self.dyntightmask.shape[1]):
+							if self.dyntightmask[i,j,sl]==1:
+								uptakeConc=FLASH.SI2Conc(np.squeeze(self.dynims[i,j,sl,:]),TR,flip,self.T1map[i,j,sl]/1000,baselinepts,None)
+								if np.sum(np.isnan(uptakeConc))==0 and np.sum(uptakeConc)>0:
+									Conccurves[i,j,sl,:]=uptakeConc
+
+
+		#Find the sd in the baseline
+		baselinestd=np.std(Conccurves[:,:,:,1:baselinepts],3)
+
+		#Find the mean std over the mask pixels
+		numtightmaskpixels=np.sum(self.dyntightmask)
+		meanbaselinestd=np.sum(baselinestd*self.dyntightmask)/numtightmaskpixels
+		print('pixels in mask = '+str(numtightmaskpixels))
+		print('baseline sd = '+str(meanbaselinestd))
+		#Calculate threshold
+		if threshold==0:
+			threshold=meanbaselinestd*25
+		print('threshold = '+str(threshold))
+
+		#Find the maximum enhancement then mask to tightmask
+		maxenhancement=np.ndarray.max(self.Conccurves,3)
+		maxenhancement=maxenhancement*self.dyntightmask
+		#plt.figure()
+		#plt.imshow(maxenhancement[:,:,10],vmax=200,interpolation='nearest')
+		#plt.colorbar()
+
+		numenhancingpixels=np.sum(maxenhancement>threshold)
+		print('number of enhancing pixels = '+str(numenhancingpixels))
+		EnhancingFraction=numenhancingpixels/numtightmaskpixels
+		print('Enhancing Fraction Conc= '+str(EnhancingFraction))
+		
+		self.EnhancingFractionConc=EnhancingFraction
+		self.MaxEnhancementConc=maxenhancement
 
 	# Fitting
 	#####################################################
