@@ -520,7 +520,7 @@ class patient(object): # patient inherits from the object class
 	def get_EnhancingFraction(self, save=1, baselinepts=10, threshold=0):
 		#Method for enhancing fraction calculation
 		if not hasattr(self,'dynims'):
-			print("Use load_dynamics to load the dynamic images first")
+			print("Use read_dynamics to load the dynamic images first")
 			return
 		if not hasattr(self,'dyntightmask'):
 			print("make a tight mask over the tumour first, and convert to dynamic size")
@@ -560,17 +560,17 @@ class patient(object): # patient inherits from the object class
 		self.EnhancingFraction=EnhancingFraction
 		self.MaxEnhancement=maxenhancement
 
-def get_EnhancingFractionConc(self, save=1, baselinepts=10, threshold=0):
+	def get_EnhancingFractionConc(self, save=1, baselinepts=10, threshold=0):
 		#Method for enhancing fraction calculation but with concentration rather than SI
 		if not hasattr(self,'dynims'):
-			print("Use load_dynamics to load the dynamic images first")
-			return
+			self.read_dynamics('')
+			
 		if not hasattr(self,'dyntightmask'):
-			print("make a tight mask over the tumour first, and convert to dynamic size")
-			return
+			self.load_tightmask()
+			
 		if not hasattr(self,'T1map'):
-			print('Calculate the T1 map first')
-			return
+			self.load_T1map()
+			
 
 		#Make an array to hold the concentration curves:
 
@@ -587,8 +587,8 @@ def get_EnhancingFractionConc(self, save=1, baselinepts=10, threshold=0):
 
 		#Loop through to convert to concentration
 		for sl in range(self.dyntightmask.shape[2]): #for each slice
-			print(sl)
-			if np.sum(self.dytightnmask[:,:,sl])!=0: #if there are pixels in the slice
+			#print(sl)
+			if np.sum(self.dyntightmask[:,:,sl])!=0: #if there are pixels in the slice
 				for i in range(self.dyntightmask.shape[0]): #loop over rows and cols
 					for j in range(self.dyntightmask.shape[1]):
 							if self.dyntightmask[i,j,sl]==1:
@@ -611,11 +611,11 @@ def get_EnhancingFractionConc(self, save=1, baselinepts=10, threshold=0):
 		print('threshold = '+str(threshold))
 
 		#Find the maximum enhancement then mask to tightmask
-		maxenhancement=np.ndarray.max(self.Conccurves,3)
+		maxenhancement=np.ndarray.max(Conccurves,3)
 		maxenhancement=maxenhancement*self.dyntightmask
-		#plt.figure()
-		#plt.imshow(maxenhancement[:,:,10],vmax=200,interpolation='nearest')
-		#plt.colorbar()
+		plt.figure()
+		plt.imshow(maxenhancement[:,:,10],interpolation='nearest',vmax=10)
+		plt.colorbar()
 
 		numenhancingpixels=np.sum(maxenhancement>threshold)
 		print('number of enhancing pixels = '+str(numenhancingpixels))
