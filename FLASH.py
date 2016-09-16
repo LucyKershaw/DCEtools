@@ -62,3 +62,12 @@ def Conc2SI(deltaR1,TR,flip,T1base,M0):
 	# Convert to SI
 	SI=M0*np.sin(rflip)*(1-np.exp(-TR*R1curve))/(1-np.cos(rflip)*np.exp(-TR*R1curve))
 	return SI
+
+def CalcM0(SI, TR, flip, T1):
+	# TR and T1 should be in s
+	import numpy as np
+	#convert flip angle to radians
+	rflip=flip*np.pi/180
+	#Calculate M0
+	M0=SI*(1-np.cos(rflip)*np.exp(-TR/T1))/(np.sin(rflip)*(1-np.exp(-TR/T1)))
+	return M0

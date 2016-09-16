@@ -116,8 +116,13 @@ def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],vpmatrix[i],Result.fun,toff,Result.status)
 
     #print(resultsmatrix)
-    bestindex=np.nanargmin(resultsmatrix[:,3])
-    bestresult=resultsmatrix[bestindex,:]
+    try:
+        bestindex=np.nanargmin(resultsmatrix[:,3])
+        bestresult=resultsmatrix[bestindex,:]
+    except ValueError:
+        bestresult=[0,0,0,0,0,0]
+
+    
     #print(bestresult)
     #plt.plot(t,uptake,'x')
     #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:3],t,AIF,toff),TR,flip,T1base,M0),'r')
