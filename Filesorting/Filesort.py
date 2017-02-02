@@ -26,7 +26,7 @@ def Filesort_Philips(direct):
 	# and changing the filenames accordingly
 
 	# Main directory
-	filenames=glob.glob(os.path.join(direct,'IM*'))
+	filenames=glob.glob(os.path.join(direct,'I*'))
 	print('Processing main directory')
 
 	for N in filenames:
@@ -34,7 +34,8 @@ def Filesort_Philips(direct):
 		
 	# Subdirectories
 	for M in subdirects:
-		filenames=glob.glob(os.path.join(direct,M,'IM*')) # find image files
+		filenames=glob.glob(os.path.join(direct,M,'I*')) # find image files
+		print(len(filenames))
 		print('Processing subdirectory '+M)
 		for N in filenames:
 			dicom_renamePhilips(N,direct) # rename them all and move to DICOM folder
@@ -117,7 +118,41 @@ def Filesort_Siemens(direct,collapse_dynamics=1):
 	# Sort into folders for each series
 	sort_series(direct)
 
-	
+##############################################################################################
+# Function to rename Siemens dicom within series folders so that images are in sequential order
+
+def rename_in_folders(direct, UMCUPhilips=0):
+	import dicom
+	import os
+	import glob
+
+	#Find existing series folders
+	foldernames=glob.glob(os.path.join(direct,'*'))
+
+	if UMCUPhilips==1:
+		#For each folder...
+		#find existing filenames
+		for j in range(len(foldernames)):
+			filenames=glob.glob(os.path.join(foldernames[j],'I*'))
+			# Then rename each file
+			for i in range(len(filenames)):
+				dicom_renamePhilips(filenames[i],foldernames[j])
+				if i%10==0:
+					print(i)
+		return
+
+
+	#For each folder...
+	#find existing filenames
+	for j in range(len(foldernames)):
+		filenames=glob.glob(os.path.join(foldernames[j],'*.dcm'))
+		# Then rename each file
+		for i in range(len(filenames)):
+			dicom_renameSiemens(filenames[i],foldernames[j])
+			if i%10==0:
+				print(i)
+
+
 
 
 ###############################################################################################
@@ -129,7 +164,10 @@ def dicom_renamePhilips(filename, dstfolder):
 	import os
 
 	im=dicom.read_file(filename) # Read the file
-	seriesnum=im.AcquisitionNumber # Get the information to make the new file name
+	if im.SOPClassUID=='1.2.840.10008.5.1.4.1.1.66':
+		print('Raw data file found... ignoring') # Check the UID in case this is a raw data file instead of an image file
+		return
+	seriesnum=im.SeriesNumber # Get the information to make the new file name
 	seriesnum='%02d' % seriesnum
 	seriesname=im.SeriesDescription
 	seriesname=seriesname.replace('/','') # remove pesky forwardslashes!
@@ -159,6 +197,7 @@ def dicom_renameSiemens(filename,dstfolder):
 	imagenumber=im.InstanceNumber
 	imagenumber='%04d' % imagenumber
 	newname=str(seriesnum)+'_'+seriesname+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
+	# newname=str(seriesnum)+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
 	os.rename(filename,os.path.join(dstfolder,newname)) # Rename the file and move to destination
 
 ###############################################################################################
@@ -172,6 +211,7 @@ def sort_series(direct):
 	allnames=glob.glob(os.path.join(direct,'*.dcm')) # find the dicom files
 	filenames=[os.path.split(X)[1] for X in allnames]# find the filenames only
 	allseries=[X.split('_')[0]+'_'+X.split('_')[1] for X in filenames]# find the series numbers and names
+	# allseries=[X.split('_')[0] for X in filenames]
 	series=set(allseries) # find unique entries in this list
 	series=list(series) # convert back to a list for convenience
 

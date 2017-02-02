@@ -87,7 +87,7 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
     #print(M0)
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp
-    plt.figure()
+    #plt.figure()
 
     if toff is None:
         firstthird=np.round(len(t)/3)
@@ -97,7 +97,7 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
         toff=Ketyresult.x[2]
         print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
         concdata=Kety(Ketyresult.x,t,AIF)
-        plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
+        #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
         #plt.plot(t,AIF)
 
     if toff==0:
@@ -120,16 +120,19 @@ def TwoCXMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
 
     for i in range (0,len(vpmatrix)):
         Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'maxiter':1000})
-        print(Result.x,vpmatrix[i],Result.fun,Result.success)
+        #print(Result.x,vpmatrix[i],Result.fun,Result.success)
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],Result.x[2],vpmatrix[i],Result.fun,toff,Result.status)
 
     #print(resultsmatrix)
     bestindex=np.nanargmin(resultsmatrix[:,4])
     bestresult=resultsmatrix[bestindex,:]
-    print(bestresult)
-    plt.plot(t,uptake,'x')
-    plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
-
+    #print(bestresult)
+    #plt.plot(t,uptake,'x')
+    #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:4],t,AIF,toff),TR,flip,T1base,M0),'r')
+    #plt.figure()
+    #plt.plot(t,FLASH.SI2Conc(uptake,TR,flip,T1base,10,None)+(1/T1base))
+    #plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff)+(1/T1base),'r-')
+    #plt.plot(t[0:10],np.ones(10)*(1/T1base),'rx')
     return bestresult
 
 def TwoCXMfittingConc(t, AIF, uptake, toff, Ketystart):
@@ -139,7 +142,7 @@ def TwoCXMfittingConc(t, AIF, uptake, toff, Ketystart):
     import matplotlib.pyplot as plt
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp from the first third of the curve
-    plt.figure()
+    #plt.figure()
 
     firstthird=np.round(len(t)/3)
     if toff is None:
@@ -176,8 +179,8 @@ def TwoCXMfittingConc(t, AIF, uptake, toff, Ketystart):
     bestindex=np.nanargmin(resultsmatrix[:,4])
     bestresult=resultsmatrix[bestindex,:]
     print(bestresult)
-    plt.plot(t,uptake,'x')
-    plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff))
+    #plt.plot(t,uptake,'x')
+    #.plt.plot(t,TwoCXM(bestresult[0:4],t,AIF,toff))
     return bestresult
 
 def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):

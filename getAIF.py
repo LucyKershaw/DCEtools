@@ -1,24 +1,21 @@
 # Module to do AIF choosing from pixels
 
-def getAIF(dynimages, slice, TR, flip):
+def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2):
 	# TR should be in seconds
 	import numpy as np
 	import matplotlib.pyplot as plt
 	#import pyqtgraph as pg
 	import FLASH
 	
-	# First job - find AIF peak image by finding the index of the maximum pixel value within the first 50 frames
-	peakframe=np.argmax(np.amax(np.amax(dynimages[:,:,slice,0:50],0),0))
-
 	# Show image and click the vessels
 	h1=plt.figure()
 	plt.imshow(dynimages[:,:,slice,peakframe])
-	vesselpos=plt.ginput(n=2,timeout=100, show_clicks=True,mouse_add=1, mouse_pop=3, mouse_stop=2) # these are not integers
+	vesselpos=plt.ginput(n=numvessels,timeout=100, show_clicks=True,mouse_add=1, mouse_pop=3, mouse_stop=2) # these are not integers
 	plt.close(h1)
-	AIF=np.zeros((2,dynimages.shape[3]))
+	AIF=np.zeros((numvessels,dynimages.shape[3]))
 
 	# For each vessel location....
-	for v in range(0,2):
+	for v in range(0,numvessels):
 		# Display a 9x9 grid of AIFs from around the points
 		plt.ioff()
 		g,axarr=plt.subplots(9,9,sharex=False,sharey=True,figsize=[15,10],tight_layout='True')
@@ -78,4 +75,39 @@ def getAIF(dynimages, slice, TR, flip):
 
 
 	return AIF
+
+def plot_peak_baseline(dynimages, peak, slices):
+	import numpy as np
+	import roipoly
+	import matplotlib.pyplot as plt
+
+	# A function to plot out the baseline and peak signal intensities over slices
+	# Extract mean baseline volume and peak volume
+
+	baseline=np.mean(dynimages[:,:,:,1:10],3)
+	peakvol=dynimages[:,:,:,peak]
+	maxbase=np.zeros(len(slices))
+	maxpeak=np.zeros(len(slices))
+
+	for i in range(len(slices)):
+		h=plt.figure()
+		im=peakvol[slices[i],:,:,]
+		base=baseline[slices[i],:,:]
+		plt.imshow(im,cmap='gray',interpolation='nearest') # Show the image
+		roi=roipoly.roipoly.roipoly() # Mark the vessel
+		input('press enter to continue')
+		mask=roi.getMask(im) # Make the mask
+
+		maxpeak[i]=np.max(im*mask)# Find the peak peak value wihtin the vessel
+		location=np.argmax(im*mask)
+		maxbase[i]=np.ndarray.flatten(base)[location]# Find the baseline value of this pixel
+		
+
+
+	return maxbase, maxpeak			
+
+
+
+
+
 

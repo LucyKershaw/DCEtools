@@ -116,15 +116,20 @@ def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],vpmatrix[i],Result.fun,toff,Result.status)
 
     #print(resultsmatrix)
-    bestindex=np.nanargmin(resultsmatrix[:,3])
-    bestresult=resultsmatrix[bestindex,:]
+    try:
+        bestindex=np.nanargmin(resultsmatrix[:,3])
+        bestresult=resultsmatrix[bestindex,:]
+    except ValueError:
+        bestresult=[0,0,0,0,0,0]
+
+    
     #print(bestresult)
     #plt.plot(t,uptake,'x')
     #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:3],t,AIF,toff),TR,flip,T1base,M0),'r')
 
     return bestresult
 
-def TwoCUMfittingConc(t, AIF, uptake, toff, Ketystart):
+def TwoCUMfittingConc(t, AIF, uptake, toff):
     import numpy as np
     import scipy.optimize 
     import scipy.interpolate
@@ -135,7 +140,7 @@ def TwoCUMfittingConc(t, AIF, uptake, toff, Ketystart):
 
     firstthird=np.round(len(t)/3)
     if toff is None:
-        #Ketystart=np.array((0.01,0.1,t[1])) # set starting guesses for Ktrans, ve, toff
+        Ketystart=np.array((0.01,0.1,t[1])) # set starting guesses for Ktrans, ve, toff
         Ketystart=Ketystart+[t[1]]
         Ketybnds=((0.00001,999),(0.00001,2),(0.00001,20))
         Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP',options={'disp':False})

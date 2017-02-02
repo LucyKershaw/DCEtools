@@ -14,6 +14,7 @@ from roipoly import roipoly
 import scipy.misc
 import SRTurboFLASH
 import IRTurboFLASH
+import IRTrueFISP
 import scipy.optimize
 import TwoCXM
 import TwoCUM
@@ -31,7 +32,7 @@ class patient(object): # patient inherits from the object class
 			# Choose patient directory if not already stated
 			root = Tk()
 			#root.withdraw()
-			direct = filedialog.askdirectory(title="select patient directory")
+			direct = filedialog.askdirectory(initialdir='C:/Data/',title="select patient directory")
 			root.destroy()
 			print(direct)
 			self.patientdirect=direct
@@ -167,12 +168,13 @@ class patient(object): # patient inherits from the object class
 				temporalpos=temp.AcquisitionNumber #And if it doesn't have TemporalPositionIdentifier, use the Acquisition Number
 			timept=temporalpos-1 # Find temporal position (begin at zero!)
 			
-			if temp.Manufacturer=='Philips':
+			if temp.Manufacturer=='Philips Medical Systems':
 				slice=int(np.floor(i/numtimepoints)) # Work out slice number for Philips (begin at zero!) 
 				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
+				#print(i,slice, timept, temp.SliceLocation, '0020, 0012', temp[0x0020,0x0012].value, 'Inst num, 0020, 0013',temp[0x0020,0x0013].value)
 			if temp.Manufacturer=='SIEMENS':
 				slice=int(i-timept*numslices) # Work out the slice number for Siemens
-				#print(i,slice, timept)
+				#print(i,slice, timept, temp.SliceLocation, '0020, 0012', temp[0x0020,0x0012].value, 'Inst num, 0020, 0013',temp[0x0020,0x0013].value)
 				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
 
 		# save this file as an npy array for next time
@@ -181,7 +183,7 @@ class patient(object): # patient inherits from the object class
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
-	def read_T1data(self,seriestag,usefolders=range(0,6,1)):
+	def read_T1data(self,seriestag,usefolders=range(0,5,1),measnum=0,VFA=0): #Set VFA flag to 1 if necessary
 		T1Folders=glob.glob(os.path.join(self.dicomdirect,seriestag))
 		if not T1Folders:
 			print('Folder not found')
@@ -191,42 +193,55 @@ class patient(object): # patient inherits from the object class
 		T1Folders=[T1Folders[x] for x in usefolders]
 		print('Using these folders:' )
 		pprint.pprint(T1Folders)
+		if measnum==0:
+			print('This is going to be saved as the primary, precontrast T1 measurement')
+		if measnum==1:
+			print('This is going to be treated as a secondary T1 measurement')
+
 
 		# in the first directory, read in one file to check sizes etc
 		T1files=glob.glob(os.path.join(T1Folders[0],'*.dcm'))
 		info=dicom.read_file(T1files[0])
+		# print(T1files[0])
 		im=info.pixel_array		
-		self.T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('TIs','f8',len(T1Folders)),('N','f8')])
-		self.T1info['pixelsize']=float(info.PixelSpacing[0])
-		self.T1info['TR']=float(info.RepetitionTime)
-		self.T1info['N']=int(info.EchoTrainLength)
-		self.T1info['FlipAngle']=float(info.FlipAngle)
+		# plt.imshow(im)
+		T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8',len(T1Folders)),('TIs','f8',len(T1Folders)),('N','f8')])
+		T1info['pixelsize']=float(info.PixelSpacing[0])
+		T1info['TR']=float(info.RepetitionTime)
+		T1info['N']=int(info.EchoTrainLength)
+		T1info['FlipAngle'][0][0]=float(info.FlipAngle)
+		self.T1info=T1info
 
 		if info.Manufacturer=='SIEMENS':
-			print('Warning - values for N and TR may be incorrect for Siemens dicom - setting to zero, please check:')
+			print('Warning - values for N and TR may be incorrect for Siemens dicom - please check:')
 			print('N = ' + str(self.T1info['N']))
 			print('TR = '+str(self.T1info['TR']))
-			self.T1info['N']=0
-			self.T1info['TR']=0
+			# self.T1info['N']=0
+			# self.T1info['TR']=0
+
 
 		# Make an array of the right size to hold the images
 		T1ims=np.zeros(np.array([im.shape[0],im.shape[1],len(T1files),len(T1Folders)]))
 		
-		# Read in the rest, checking TI for each folder (don't rely on series names if Philips)
+		# Read in the rest, checking TI or flip angle for each folder (don't rely on series names if Philips)
 		for y in range(0,len(T1Folders)): # for each subfolder
 			T1files=glob.glob(os.path.join(self.dicomdirect,T1Folders[y],'*.dcm')) # find dicom files
 			temp=dicom.read_file(T1files[0]) # read first one
 			if info.Manufacturer=='SIEMENS':
-				self.T1info['TIs'][0][y]=float(T1Folders[y].split('TI')[1].split('DM')[0])
+				#T1info['TIs'][0][y]=float(T1Folders[y].split('TI')[1].split('DM')[0])
+				T1info['TIs'][0][y]=float(temp.InversionTime)
 				ss=1
 				si=0
 			if info.Manufacturer=='Philips Medical Systems':
-				self.T1info['TIs'][0][y]=temp[0x2001,0x101b].value # set the TI value in T1info
+				if VFA==0:
+					T1info['TIs'][0][y]=temp[0x2001,0x101b].value # set the TI value in T1info
+				if VFA==1:
+					T1info['FlipAngle'][0][y]=float(temp.FlipAngle)
 				#Also if Philips, make sure the scaling of the images is done
 				ss=float(temp[0x2005,0x100e].value) #extract the scale slope
 				si=float(temp[0x2005,0x100d].value) #extract the scale intercept
 
-			T1ims[:,:,0,y]=(temp.pixel_array-si)/ss
+				T1ims[:,:,0,y]=(temp.pixel_array-si)/ss
 
 			for z in range(1,len(T1files)): # for the rest of the files
 				temp=dicom.read_file(T1files[z])
@@ -239,8 +254,16 @@ class patient(object): # patient inherits from the object class
 				T1ims[:,:,z,y]=(temp.pixel_array-si)/ss
 
 		print("T1 measurement image array size is "+str(T1ims.shape))
-		print('Inversion times are '+str(self.T1info['TIs']))
-		self.T1data=T1ims
+		if VFA==0:
+			print('Inversion times are '+str(T1info['TIs']))
+		if VFA==1:
+			print('Flip angles are '+str(T1info['FlipAngle']))
+		if measnum==0:
+			self.T1data=T1ims
+			self.T1info=T1info
+		if measnum==1:
+			self.T1data2=T1ims
+			self.T1info2=T1info
 
 	# Finally, a method to read all the images
 	def read_ims(self,T2wseriestag,dynseriestag,T1seriestag):
@@ -250,48 +273,58 @@ class patient(object): # patient inherits from the object class
 
 	# methods for AIF
 	#####################################################
+
 	def read_AIF_fromfile(self):
 		# read existing AIF from file in patient/Analysis directory
-		print('looking for AIF file')
+		print('looking for AIF file...')
 		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','AIF.npy')):
 			print('AIF file not found')
 			return	
+		print('Found')
 		AIF=np.load(os.path.join(self.patientdirect,'Analysis','AIF.npy'))
 		self.AIF=AIF
 
-	def get_pixel_AIF(self):
+	def get_pixel_AIF(self, usesag=0, numvessels=2, slicegroup=[3,4,5,6,7,8,9,10,11]):
 		# Display dynamics and choose slices from which AIF should be extracted
 		# First job - find AIF peak image by finding the index of the maximum pixel value within the first 50 frames for the central slice
-		midslice=np.floor(self.dynims.shape[2]/2)
-		peakframe=np.argmax(np.amax(np.amax(self.dynims[:,:,midslice,0:50],0),0))
+		dynims=np.copy(self.dynims)
+		midslice=np.floor(dynims.shape[2]/2)
+		#slicegroup=[3,4,5,6,7,8,9,10,11]
+		peakframe=np.argmax(np.amax(np.amax(dynims[:,:,midslice,0:50],0),0))
+		if usesag==1:
+			midslice=np.floor(dynims.shape[1]/2)
+			peakframe=np.argmax(np.max(dynims[:,midslice,:,0:50],(0,1,)))			
+			dynims=np.swapaxes(np.swapaxes(dynims,0,2),0,1)
+
+
 		h2=plt.figure()
 		plt.subplot(3,3,1)
-		plt.imshow(self.dynims[:,:,3,peakframe])
-		plt.title('3')
+		plt.imshow(dynims[:,:,slicegroup[0],peakframe])
+		plt.title(slicegroup[0])
 		plt.subplot(3,3,2)
-		plt.imshow(self.dynims[:,:,4,peakframe])
-		plt.title('4')
+		plt.imshow(dynims[:,:,slicegroup[1],peakframe])
+		plt.title(slicegroup[1])
 		plt.subplot(3,3,3)
-		plt.imshow(self.dynims[:,:,5,peakframe])
-		plt.title('5')
+		plt.imshow(dynims[:,:,slicegroup[2],peakframe])
+		plt.title(slicegroup[2])
 		plt.subplot(3,3,4)
-		plt.imshow(self.dynims[:,:,6,peakframe])
-		plt.title('6')
+		plt.imshow(dynims[:,:,slicegroup[3],peakframe])
+		plt.title(slicegroup[3])
 		plt.subplot(3,3,5)
-		plt.imshow(self.dynims[:,:,7,peakframe])
-		plt.title('7')
+		plt.imshow(dynims[:,:,slicegroup[4],peakframe])
+		plt.title(slicegroup[4])
 		plt.subplot(3,3,6)
-		plt.imshow(self.dynims[:,:,8,peakframe])
-		plt.title('8')
+		plt.imshow(dynims[:,:,slicegroup[5],peakframe])
+		plt.title(slicegroup[5])
 		plt.subplot(3,3,7)
-		plt.imshow(self.dynims[:,:,9,peakframe])
-		plt.title('9')
+		plt.imshow(dynims[:,:,slicegroup[6],peakframe])
+		plt.title(slicegroup[6])
 		plt.subplot(3,3,8)
-		plt.imshow(self.dynims[:,:,10,peakframe])
-		plt.title('10')
+		plt.imshow(dynims[:,:,slicegroup[7],peakframe])
+		plt.title(slicegroup[7])
 		plt.subplot(3,3,9)
-		plt.imshow(self.dynims[:,:,11,peakframe])
-		plt.title('11')
+		plt.imshow(dynims[:,:,slicegroup[8],peakframe])
+		plt.title(slicegroup[8])
 
 
 
@@ -301,20 +334,24 @@ class patient(object): # patient inherits from the object class
 		plt.close(h2)
 
 		# Get resulting AIFs for these slices
-		AIFtemp=np.zeros((2,self.dynims.shape[3],len(ChosenSlices)))
+		AIFtemp=np.zeros((numvessels,dynims.shape[3],len(ChosenSlices)))
 		for i in range(0,len(ChosenSlices)):
-			AIFtemp[:,:,i]=getAIF.getAIF(self.dynims,ChosenSlices[i], self.dyninfo['TR']/1000, self.dyninfo['FlipAngle'])
+			AIFtemp[:,:,i]=getAIF.getAIF(dynims,ChosenSlices[i], self.dyninfo['TR']/1000, self.dyninfo['FlipAngle'],peakframe,numvessels=1)
 
 		# Choose from plot which one to use
 		h3=plt.figure()
 		for ii in range(0,len(ChosenSlices)): 
 			plt.plot(np.squeeze(AIFtemp[0,:,ii]),label=str(ii)+' - '+str(ChosenSlices[ii])+'L')
-			plt.plot(np.squeeze(AIFtemp[1,:,ii]),label=str(ii)+' - '+str(ChosenSlices[ii])+'R')
+			if numvessels==2:
+				plt.plot(np.squeeze(AIFtemp[1,:,ii]),label=str(ii)+' - '+str(ChosenSlices[ii])+'R')
 			plt.legend()
 		
-		ChooseAIF=input('Which AIF should be used? Input index number, comma, 0 for L, 1 for R')
-		ChooseAIF=ChooseAIF.split(',')
-		AIF=AIFtemp[int(ChooseAIF[1]),:,ChooseAIF[0]]
+		ChooseAIF=input('Which AIF should be used? Input index number, comma, 0 for L, 1 for R OR Av for average all')
+		if ChooseAIF=='Av':
+			AIF=np.mean(AIFtemp,2)
+		else:
+			ChooseAIF=ChooseAIF.split(',')
+			AIF=AIFtemp[int(ChooseAIF[1]),:,ChooseAIF[0]]
 		np.save(os.path.join(self.patientdirect,'Analysis','AIFall.npy'),AIFtemp)
 		np.save(os.path.join(self.patientdirect,'Analysis','AIF.npy'),AIF) #save chosen AIF in Analysis folder as AIF.
 		self.AIF=AIF
@@ -411,6 +448,14 @@ class patient(object): # patient inherits from the object class
 
 	def load_mask(self):
 		#method to load previously made dynamic mask
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','mask.npy')):
+			print('No mask saved')
+			return
+		else:
+			self.mask=np.load(os.path.join(self.patientdirect,'Analysis','mask.npy'))
+
+	def load_dynmask(self):
+		#method to load previously made dynamic mask
 		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','dynmask.npy')):
 			print('No mask saved')
 			return
@@ -426,49 +471,78 @@ class patient(object): # patient inherits from the object class
 			self.dyntightmask=np.load(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'))
 
 
-	def make_T1map(self,seqtype='IR'): # method to do T1 fitting, seqtype is either IR or SR
-		if not hasattr(self, 'T1data'):
-			print('Read the T1 data first - patient.read_T1data()')
-			return
-		TIs=self.T1info['TIs'][0]
-		TR=self.T1info['TR'][0]
-		N=self.T1info['N'][0]
-		flip=self.T1info['FlipAngle'][0]
+	def make_T1map(self,seqtype='IR',measnum=0): # method to do T1 fitting, seqtype is either IR, SR, IRTrueFISP or VFA
+		#if not hasattr(self, 'T1data'):
+		#	print('Read the T1 data first - patient.read_T1data()')
+		#	return
+		if measnum==0:
+			T1info=self.T1info
+		if measnum==1:
+			T1info=self.T1info2
+
+		TIs=T1info['TIs'][0]
+		TR=T1info['TR'][0]
+		N=T1info['N'][0]
+		flip=T1info['FlipAngle']
 		sequenceparams=(flip,np.ceil(N/2),TR,N,4000)
 		
 		map=np.zeros(self.dynmask.shape)
 		#self.T1map=np.zeros(self.dynmask.shape)
 
+		if measnum==0:
+			T1data=self.T1data
+		if measnum==1:
+			T1data=self.T1data2
+
 		data=np.zeros((self.dynmask.shape+(1,)))
 		data[:,:,:,0]=self.dynmask
 		data=np.tile(data,(1,1,1,len(TIs)))
-		data=self.T1data*data
+		data=T1data*data
 
-		for sl in range(self.T1data.shape[2]): #for each slice
+		for sl in range(T1data.shape[2]): #for each slice
 			print(sl)
 			if np.sum(self.dynmask[:,:,sl])!=0: #if there are pixels in the slice
-				for i in range(self.T1data.shape[0]):
-					for j in range(self.T1data.shape[1]):
+				for i in range(T1data.shape[0]):
+					for j in range(T1data.shape[1]):
 						curve=np.squeeze(data[i,j,sl,:])
 						if np.sum(curve)!=0:
 							curve=curve/np.amax(curve)
 							if seqtype=='IR':
 								fit=IRTurboFLASH.fittingfun(TIs,sequenceparams,curve)
+							if seqtype=='IRTrueFISP':
+								fit=IRTrueFISP.fittingfun(TIs,TR,curve)
+							if seqtype=='VFA':
+								fit=FLASH.fittingfun(flip,TR,curve)
+								# Swap M0 and T1 around to match other fitting algorithms
+								tmp=fit.x[0]
+								fit.x[0]=fit.x[1]
+								fit.x[1]=tmp
 							else:
 								fit=SRTurboFLASH.fittingfun(TIs,TR,flip,np.ceil(N/2),curve)
 							map[i,j,sl]=fit.x[0]
 		# Save the map
-		np.save(os.path.join(self.patientdirect,'Analysis','T1map.npy'),map)
-		self.T1map=map
+		if measnum==0:
+			np.save(os.path.join(self.patientdirect,'Analysis','T1map.npy'),map)
+			self.T1map=map
+		if measnum==1:
+			np.save(os.path.join(self.patientdirect,'Analysis','T1map2.npy'),map)
+			self.T1map2=map
 
-	def load_T1map(self):
-		#method to load previously made dynamic mask
-		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','T1map.npy')):
+	def load_T1map(self,measnum=0):
+		#method to load previously made T1 map
+		if measnum==0:
+			filename='T1map.npy'
+		elif measnum==1:
+			filename='T1map2.npy'
+
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis',filename)):
 			print('No T1 map saved')
 			return
-		else:
-			self.T1map=np.load(os.path.join(self.patientdirect,'Analysis','T1map.npy'))
-
+		
+		if measnum==0:
+			self.T1map=np.load(os.path.join(self.patientdirect,'Analysis',filename))
+		if measnum==1:
+			self.T1map2=np.load(os.path.join(self.patientdirect,'Analysis',filename))
 	
 	def get_iAUC(self, save=1, baselinepts=10):
 		#method to calculate iAUC for the pixels within the mask, set save to 1 to save to a file
@@ -625,6 +699,45 @@ class patient(object): # patient inherits from the object class
 		self.EnhancingFractionConc=EnhancingFraction
 		self.MaxEnhancementConc=maxenhancement
 
+	def get_region_stats(self,image,mask): #Use a mask and an image to get mean, sd, median, quartiles and volume
+		mask=getattr(self,mask)
+		image=getattr(self,image)
+		# Check image and mask are the same shape
+		if mask.shape != image.shape:
+			print('Image and mask need to be the same shape and size')
+			return
+		# Num pixels
+		numpix=np.sum(mask)
+		# Mean
+		regionmean=np.mean(image[mask==1])
+		# SD
+		regionsd=np.std(image[mask==1])
+		# Median
+		regionmedian=np.median(image[mask==1])
+		# LQ
+		regionlq=np.percentile(image[mask==1],25)
+		# UQ
+		regionuq=np.percentile(image[mask==1],75)
+
+		print([numpix,regionmean,regionsd,regionmedian,regionlq,regionuq])
+
+	def plot_mean_curve(self, image, mask, x=0): #Use a mask and an image to plot a mean curve from a region mask. Put time in x variable if required
+		image=getattr(self,image)
+		# Check image and mask are the same shape
+		if mask.shape[0:2] != image.shape[0:2]:
+			print('Image and mask need to be the same size in first 2 dimensions')
+			return
+		numpix=np.sum(mask)
+		curve=np.mean(image[mask==1,:],0)
+		if x==0: # If x was zero, just plot curve
+			plt.plot(curve)
+		if x!=0: # If not, use the x provided
+			plt.plot(x,curve)
+		self.meancurve=curve
+		np.save(os.path.join(self.patientdirect,'Analysis','meancurve.npy'),curve)
+
+
+
 	# Fitting
 	#####################################################
 	def fit_Tofts(self):
@@ -633,15 +746,23 @@ class patient(object): # patient inherits from the object class
 	def fit_ExtTofts(self):
 		pass
 
-	def fit_2CXM(self,SIflag,save):
-		# To fit SI, set SIflag to 1
+	def fit_2CXM(self,SIflag,save,use2ndT1=0):
+		# To fit SI, set SIflag to 1, and to use second T1 measurement to correct SI curves, set use2ndT1=1
+		if SIflag==0 and use2ndT1==1:
+			print('Concentration fitting with second T1 not yet implemented')
+			return
+
 		# check for an AIF
 		if not hasattr(self,'AIF'):
 			print('No AIF available')
 			return
 
+		# Check for T1 map(s)
 		if not hasattr(self,'T1map'):
 			print('No T1map available')
+			return
+		if use2ndT1==1 and not hasattr(self,'T1map2'):
+			print('Second T1map not found')
 			return
 
 		if not hasattr(self,'dynmask'):
@@ -653,9 +774,19 @@ class patient(object): # patient inherits from the object class
 		
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
+		rflip=flip*np.pi/180
 		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
 
 		if SIflag==1:
+			# Check if second T1 map is to be used for correction, if so calculate correction matrix
+			if use2ndT1==1:
+				SI0=np.mean(self.dynims[:,:,:,1:15],3) #find mean of beginning
+				SI1=np.mean(self.dynims[:,:,:,-15:],3) #find mean of end
+				M0=FLASH.CalcM0(SI0,TR,flip,self.T1map/1000)
+				SI1C=FLASH.SIeqn([M0,self.T1map2/1000],flip,TR) #Find corrected SI at the end of the dynamic from the post contrast T1 measurement
+				k=(SI1C-SI0)/(SI1-SI0)
+
+			# Now work through slices, rows and columns
 			for sl in range(self.dynims.shape[2]):
 				count=0
 				total=np.sum(self.dynmask[:,:,sl])
@@ -665,6 +796,9 @@ class patient(object): # patient inherits from the object class
 							count=count+1
 							print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
 							uptake=np.squeeze(self.dynims[i,j,sl,:])
+							#if correcting with second T1map, do that now
+							if use2ndT1==1:
+								uptake=k[i,j,sl]*(uptake-SI0[i,j,sl])+SI0[i,j,sl]
 							T1base=self.T1map[i,j,sl]
 							fit=TwoCXM.TwoCXMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
 							self.TwoCXMfitSI[i,j,sl,:]=fit
@@ -684,7 +818,11 @@ class patient(object): # patient inherits from the object class
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitConcmaps.npy'),self.TwoCXMfitConc)
 
-	def fit_2CUM(self, SIflag, save):
+	def fit_2CUM(self,SIflag,save,use2ndT1=0):
+		# To fit SI, set SIflag to 1, and to use second T1 measurement to correct SI curves, set use2ndT1=1
+		if SIflag==0 and use2ndT1==1:
+			print('Concentration fitting with second T1 not yet implemented')
+			return
 		# To fit SI, set SIflag to 1
 		# To save maps, set save flag to 1
 		# check for an AIF
@@ -694,6 +832,9 @@ class patient(object): # patient inherits from the object class
 
 		if not hasattr(self,'T1map'):
 			print('No T1map available')
+			return
+		if use2ndT1==1 and not hasattr(self,'T1map2'):
+			print('Second T1map not found')
 			return
 
 		if not hasattr(self,'dynmask'):
@@ -708,6 +849,14 @@ class patient(object): # patient inherits from the object class
 		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
 
 		if SIflag==1:
+			# Check if second T1 map is to be used for correction, if so calculate correction matrix
+			if use2ndT1==1:
+				SI0=np.mean(self.dynims[:,:,:,1:15],3) #find mean of beginning
+				SI1=np.mean(self.dynims[:,:,:,-15:],3) #find mean of end
+				M0=FLASH.CalcM0(SI0,TR,flip,self.T1map/1000)
+				SI1C=FLASH.SIeqn([M0,self.T1map2/1000],flip,TR) #Find corrected SI at the end of the dynamic from the post contrast T1 measurement
+				k=(SI1C-SI0)/(SI1-SI0)
+
 			for sl in range(self.dynims.shape[2]):
 				count=0
 				total=np.sum(self.dynmask[:,:,sl])
@@ -717,11 +866,14 @@ class patient(object): # patient inherits from the object class
 							count=count+1
 							print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
 							uptake=np.squeeze(self.dynims[i,j,sl,:])
+							#if correcting with second T1map, do that now
+							if use2ndT1==1:
+								uptake=k[i,j,sl]*(uptake-SI0[i,j,sl])+SI0[i,j,sl]
 							T1base=self.T1map[i,j,sl]
 							fit=TwoCUM.TwoCUMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
 							self.TwoCUMfitSI[i,j,sl,:]=fit
 			if save==1:
-				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy'),self.TwoCUMfitSI)
+				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImapsBothT1.npy'),self.TwoCUMfitSI)
 
 		else:
 			for sl in range(self.dynims.shape[2]):
@@ -887,7 +1039,7 @@ class patient(object): # patient inherits from the object class
 			os.rename(x,os.path.join(newfoldername,x))
 		shutil.move(newfoldername,'..')
 
-	def write_maps(self,dynfoldertag,mapname):
+	def write_maps(self,dynfoldertag,mapname,seriesnumstart=1):
 		import time
 		# Method to save specified maps (i.e. AATH, 2CXM, conc, SI etc) to dicom
 		DynFolder=glob.glob(os.path.join(self.dicomdirect,dynfoldertag))		
@@ -900,6 +1052,8 @@ class patient(object): # patient inherits from the object class
 		maps=getattr(self,mapname)
 		numslices=maps.shape[2] # Find the number of slices in the map
 		nummaps=maps.shape[-1] # Find the number of maps to write out
+		#7 maps: E, Fp, ve, vp, chi2, toff, status
+		#6 maps: E, Fp, vp, chi2, toff, status
 
 		#Read first file and check for Siemens or Philips
 		tmp=dicom.read_file(filenames[0])
@@ -950,14 +1104,14 @@ class patient(object): # patient inherits from the object class
 			tmp[0x08,0x12].value=Seriesdate #Creation date
 			tmp[0x08,0x13].value=Seriestime #Creation time	
 			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
-			tmp[0x08,0x103E].value='E_map' # Description
+			tmp[0x08,0x103E].value=mapname+'E_map' # Description
 			tmp[0x20,0x0e].value=SeriesUIDs[0] # Series UID
-			tmp[0x20,0x11].value=OriginalSeriesNum+'001' # Series number
+			tmp[0x20,0x11].value=OriginalSeriesNum+np.str(seriesnumstart) # Series number
 			if tmp[0x08,0x70].value=='SIEMENS':
 				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
 				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only
 			#Write the file
-			dicom.write_file(str(tmp[0x20,0x11].value)+'_E_'+str(i+1)+'.dcm',tmp)
+			dicom.write_file(str(tmp[0x20,0x11].value)+mapname+'_E_'+str(i+1)+'.dcm',tmp)
 
 			#Fp
 			Fpmap=abs(maps[:,:,i,1])*100*60*100 #Fp in ml/100ml/min multiplied by 100
@@ -970,17 +1124,17 @@ class patient(object): # patient inherits from the object class
 			tmp[0x08,0x12].value=Seriesdate #Creation date
 			tmp[0x08,0x13].value=Seriestime #Creation time	
 			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
-			tmp[0x08,0x103E].value='Fp_map' # Description
+			tmp[0x08,0x103E].value=mapname+'Fp_map' # Description
 			tmp[0x20,0x0e].value=SeriesUIDs[1] # Series UID
-			tmp[0x20,0x11].value=OriginalSeriesNum+'002' # Series number
+			tmp[0x20,0x11].value=OriginalSeriesNum+np.str(seriesnumstart+1) # Series number
 			if tmp[0x08,0x70].value=='SIEMENS':
 				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
 				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only
 			#Write the file
-			dicom.write_file(str(tmp[0x20,0x11].value)+'_Fp_'+str(i+1)+'.dcm',tmp)
+			dicom.write_file(str(tmp[0x20,0x11].value)+mapname+'_Fp_'+str(i+1)+'.dcm',tmp)
 
 			#ve
-			if nummaps==6:
+			if nummaps==7:
 				vemap=abs(maps[:,:,i,2])*100 #ve in %
 				vemap[vemap>150]=150 #Remove anything above 150
 				vemap=vemap.astype('uint16')
@@ -989,17 +1143,17 @@ class patient(object): # patient inherits from the object class
 				tmp[0x08,0x12].value=Seriesdate #Creation date
 				tmp[0x08,0x13].value=Seriestime #Creation time	
 				tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
-				tmp[0x08,0x103E].value='ve_map' # Description
+				tmp[0x08,0x103E].value=mapname+'ve_map' # Description
 				tmp[0x20,0x0e].value=SeriesUIDs[2] # Series UID
-				tmp[0x20,0x11].value=OriginalSeriesNum+'003' # Series number
+				tmp[0x20,0x11].value=OriginalSeriesNum+np.str(seriesnumstart+2) # Series number
 				if tmp[0x08,0x70].value=='SIEMENS':
 					tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
 					tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only		
 				#Write the file
-				dicom.write_file(str(tmp[0x20,0x11].value)+'_ve_'+str(i+1)+'.dcm',tmp)
+				dicom.write_file(str(tmp[0x20,0x11].value)+mapname+'_ve_'+str(i+1)+'.dcm',tmp)
 
 			#vp
-			vpmap=abs(maps[:,:,i,-3])*100 #vp in %
+			vpmap=abs(maps[:,:,i,-4])*100 #vp in %
 			vpmap[vpmap>150]=150 #Remove anything above 150
 			vpmap=vpmap.astype('uint16')
 			#Set the pixel data and remaining header values
@@ -1007,17 +1161,17 @@ class patient(object): # patient inherits from the object class
 			tmp[0x08,0x12].value=Seriesdate #Creation date
 			tmp[0x08,0x13].value=Seriestime #Creation time	
 			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
-			tmp[0x08,0x103E].value='vp_map' # Description
+			tmp[0x08,0x103E].value=mapname+'vp_map' # Description
 			tmp[0x20,0x0e].value=SeriesUIDs[-3] # Series UID
-			tmp[0x20,0x11].value=OriginalSeriesNum+'004' # Series number
+			tmp[0x20,0x11].value=OriginalSeriesNum+np.str(seriesnumstart+3) # Series number
 			if tmp[0x08,0x70].value=='SIEMENS':
 				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
 				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only		
 			#Write the file
-			dicom.write_file(str(tmp[0x20,0x11].value)+'_vp_'+str(i+1)+'.dcm',tmp)	
+			dicom.write_file(str(tmp[0x20,0x11].value)+mapname+'_vp_'+str(i+1)+'.dcm',tmp)	
 
 			#toff
-			toffmap=abs(maps[:,:,i,-1])*1000 #toff in milliseconds (max was 20 or 30 s)
+			toffmap=abs(maps[:,:,i,-2])*1000 #toff in milliseconds (max was 20 or 30 s)
 			toffmap[toffmap>30000]=30000 #Remove anything above 30000 ms
 			toffmap=toffmap.astype('uint16')
 			#Set the pixel data and remaining header values
@@ -1025,14 +1179,14 @@ class patient(object): # patient inherits from the object class
 			tmp[0x08,0x12].value=Seriesdate #Creation date
 			tmp[0x08,0x13].value=Seriestime #Creation time	
 			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
-			tmp[0x08,0x103E].value='toff_map' # Description
+			tmp[0x08,0x103E].value=mapname+'toff_map' # Description
 			tmp[0x20,0x0e].value=SeriesUIDs[-1] # Series UID
-			tmp[0x20,0x11].value=OriginalSeriesNum+'005' # Series number
+			tmp[0x20,0x11].value=OriginalSeriesNum+np.str(seriesnumstart+4) # Series number
 			if tmp[0x08,0x70].value=='SIEMENS':
 				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
 				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only				
 			#Write the file
-			dicom.write_file(str(tmp[0x20,0x11].value)+'_toff_'+str(i+1)+'.dcm',tmp)
+			dicom.write_file(str(tmp[0x20,0x11].value)+mapname+'_toff_'+str(i+1)+'.dcm',tmp)
 
 			#PS
 			PSmap=abs(-1*np.log(1-maps[:,:,i,0])*maps[:,:,i,1])*60*100*100 #PS in 100*ml/100ml/min
@@ -1045,18 +1199,18 @@ class patient(object): # patient inherits from the object class
 			tmp[0x08,0x12].value=Seriesdate #Creation date
 			tmp[0x08,0x13].value=Seriestime #Creation time	
 			tmp[0x08,0x18].value=dicom.UID.generate_uid() #Instance UID
-			tmp[0x08,0x103E].value='PS_map' # Description
+			tmp[0x08,0x103E].value=mapname+'PS_map' # Description
 			tmp[0x20,0x0e].value=SeriesUIDs[-2] # Series UID
-			tmp[0x20,0x11].value=OriginalSeriesNum+'006' # Series number
+			tmp[0x20,0x11].value=OriginalSeriesNum+np.str(seriesnumstart+5) # Series number
 			if tmp[0x08,0x70].value=='SIEMENS':
 				tmp[0x28,0x0106].value=np.min(map) # Maximum pixel value, set for Siemens only
 				tmp[0x28,0x0107].value=np.max(map) # Minimum pixel value, set for Siemens only	
 			#Write the file
-			dicom.write_file(str(tmp[0x20,0x11].value)+'_PS_'+str(i+1)+'.dcm',tmp)
+			dicom.write_file(str(tmp[0x20,0x11].value)+mapname+'_PS_'+str(i+1)+'.dcm',tmp)
 
 		dicomdirect=self.patientdirect+'/DICOM'
 		newfiles=glob.glob('*_E_*')
-		dirname=OriginalSeriesNum+'001_E'
+		dirname=mapname+'_E'
 		os.mkdir(dirname)
 		for x in newfiles:
 			os.rename(x,os.path.join(dirname,x))	
@@ -1068,7 +1222,7 @@ class patient(object): # patient inherits from the object class
 		shutil.move(dirname,'..')
 
 		newfiles=glob.glob('*_Fp_*')
-		dirname=OriginalSeriesNum+'002_Fp'
+		dirname=mapname+'_Fp'
 		os.mkdir(dirname)
 		for x in newfiles:
 			os.rename(x,os.path.join(dirname,x))
@@ -1076,9 +1230,9 @@ class patient(object): # patient inherits from the object class
 			shutil.rmtree(os.path.join(dicomdirect,dirname))
 		shutil.move(dirname,'..')
 
-		if nummaps==6:
+		if nummaps==7:
 			newfiles=glob.glob('*_ve_*')
-			dirname=OriginalSeriesNum+'003_ve'
+			dirname=mapname+'_ve'
 			os.mkdir(dirname)
 			for x in newfiles:
 				os.rename(x,os.path.join(dirname,x))
@@ -1087,7 +1241,7 @@ class patient(object): # patient inherits from the object class
 			shutil.move(dirname,'..')
 
 		newfiles=glob.glob('*_vp_*')
-		dirname=OriginalSeriesNum+'004_vp'
+		dirname=mapname+'_vp'
 		os.mkdir(dirname)
 		for x in newfiles:
 			os.rename(x,os.path.join(dirname,x))
@@ -1096,7 +1250,7 @@ class patient(object): # patient inherits from the object class
 		shutil.move(dirname,'..')
 		
 		newfiles=glob.glob('*_toff_*')
-		dirname=OriginalSeriesNum+'005_toff'
+		dirname=mapname+'_toff'
 		os.mkdir(dirname)
 		for x in newfiles:
 			os.rename(x,os.path.join(dirname,x))
@@ -1105,7 +1259,7 @@ class patient(object): # patient inherits from the object class
 		shutil.move(dirname,'..')
 
 		newfiles=glob.glob('*_PS_*')
-		dirname=OriginalSeriesNum+'006_PS'
+		dirname=mapname+'_PS'
 		os.mkdir(dirname)
 		for x in newfiles:
 			os.rename(x,os.path.join(dirname,x))

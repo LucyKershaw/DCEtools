@@ -14,7 +14,7 @@ def SIeqn(paramsin, flip, TR):
 def fittingfun(flips,TR,data):
 	startguess=[1000,1500] #this is [M0,T1]
 	bnds=((0,3000),(0,1000000)) # Set upper and lower bounds for parameters
-	fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':True,'eps':1e-10,'maxiter':1000})
+	fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'eps':1e-10,'maxiter':1000})
 	return fit
 
 
@@ -62,3 +62,12 @@ def Conc2SI(deltaR1,TR,flip,T1base,M0):
 	# Convert to SI
 	SI=M0*np.sin(rflip)*(1-np.exp(-TR*R1curve))/(1-np.cos(rflip)*np.exp(-TR*R1curve))
 	return SI
+
+def CalcM0(SI, TR, flip, T1):
+	# TR and T1 should be in s
+	import numpy as np
+	#convert flip angle to radians
+	rflip=flip*np.pi/180
+	#Calculate M0
+	M0=SI*(1-np.cos(rflip)*np.exp(-TR/T1))/(np.sin(rflip)*(1-np.exp(-TR/T1)))
+	return M0
