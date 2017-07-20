@@ -12,6 +12,7 @@ from tkinter import filedialog
 from roipoly import roipoly
 
 import scipy.misc
+import scipy.stats
 import SRTurboFLASH
 import IRTurboFLASH
 import IRTrueFISP
@@ -19,6 +20,7 @@ import scipy.optimize
 import TwoCXM
 import TwoCUM
 import AATH
+import ExtKety
 import FLASH
 import getAIF
 import pprint
@@ -60,7 +62,9 @@ class patient(object): # patient inherits from the object class
 	# Method for showing available series folders - use to find suitable tag when reading images
 	def disp_seriesfolders(self):
 		subdirects=[x for x in os.listdir(self.dicomdirect) if os.path.isdir(os.path.join(self.dicomdirect, x))]
-		pprint.pprint(subdirects)
+		for item in subdirects:
+			print(item)
+		#pprint.pprint(subdirects)
 
 	# Define methods to read in all the required images
 	#####################################################
@@ -183,7 +187,7 @@ class patient(object): # patient inherits from the object class
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
-	def read_T1data(self,seriestag,usefolders=range(0,5,1),measnum=0,VFA=0): #Set VFA flag to 1 if necessary
+	def read_T1data(self,seriestag,usefolders=range(0,5,1),measnum=0,VFA=0, multimeas=1): #Set VFA flag to 1 if necessary, multimeas is for multiple dynamics in a VFA
 		T1Folders=glob.glob(os.path.join(self.dicomdirect,seriestag))
 		if not T1Folders:
 			print('Folder not found')
@@ -200,7 +204,7 @@ class patient(object): # patient inherits from the object class
 
 
 		# in the first directory, read in one file to check sizes etc
-		T1files=glob.glob(os.path.join(T1Folders[0],'*.dcm'))
+		T1files=glob.glob(os.path.join(T1Folders[0],'*.dcm')) #T1files is number of files in the series
 		info=dicom.read_file(T1files[0])
 		# print(T1files[0])
 		im=info.pixel_array		
@@ -227,21 +231,19 @@ class patient(object): # patient inherits from the object class
 		for y in range(0,len(T1Folders)): # for each subfolder
 			T1files=glob.glob(os.path.join(self.dicomdirect,T1Folders[y],'*.dcm')) # find dicom files
 			temp=dicom.read_file(T1files[0]) # read first one
-			if info.Manufacturer=='SIEMENS':
-				#T1info['TIs'][0][y]=float(T1Folders[y].split('TI')[1].split('DM')[0])
-				T1info['TIs'][0][y]=float(temp.InversionTime)
-				ss=1
-				si=0
+			if VFA==0:
+				T1info['TIs'][0][y]=temp[0x2001,0x101b].value # set the TI value in T1info
+			if VFA==1:
+				T1info['FlipAngle'][0][y]=float(temp.FlipAngle)
+			
+			ss=1
+			si=0
 			if info.Manufacturer=='Philips Medical Systems':
-				if VFA==0:
-					T1info['TIs'][0][y]=temp[0x2001,0x101b].value # set the TI value in T1info
-				if VFA==1:
-					T1info['FlipAngle'][0][y]=float(temp.FlipAngle)
-				#Also if Philips, make sure the scaling of the images is done
+				#If Philips, make sure the scaling of the images is done
 				ss=float(temp[0x2005,0x100e].value) #extract the scale slope
 				si=float(temp[0x2005,0x100d].value) #extract the scale intercept
 
-				T1ims[:,:,0,y]=(temp.pixel_array-si)/ss
+			T1ims[:,:,0,y]=(temp.pixel_array-si)/ss
 
 			for z in range(1,len(T1files)): # for the rest of the files
 				temp=dicom.read_file(T1files[z])
@@ -252,6 +254,20 @@ class patient(object): # patient inherits from the object class
 					si=float(info[0x2005,0x100d].value) #extract the scale intercept
 
 				T1ims[:,:,z,y]=(temp.pixel_array-si)/ss
+
+		# Make an average image for the number of multiple measurements specified (usually 1)
+		# For Siemens, order is {slice 0, slice 1... slice n}{slice 0, slice 1... slice n}
+		
+		if multimeas!=1:
+			if temp.Manufacturer=='Philips Medical Systems':
+				print('Multiple measurements for Philips not yet implemented')
+				return
+			T1imsAv=np.zeros(np.array([im.shape[0],im.shape[1],int(len(T1files)/multimeas),len(T1Folders)]))
+			numslices=int(len(T1files)/multimeas)
+			for k in range(numslices):
+				T1imsAv[:,:,k,:]=np.mean(T1ims[:,:,k+numslices::numslices,:],2)
+
+			T1ims=T1imsAv
 
 		print("T1 measurement image array size is "+str(T1ims.shape))
 		if VFA==0:
@@ -282,18 +298,21 @@ class patient(object): # patient inherits from the object class
 			return	
 		print('Found')
 		AIF=np.load(os.path.join(self.patientdirect,'Analysis','AIF.npy'))
-		self.AIF=AIF
+		self.AIF=np.squeeze(AIF)
 
 	def get_pixel_AIF(self, usesag=0, numvessels=2, slicegroup=[3,4,5,6,7,8,9,10,11]):
 		# Display dynamics and choose slices from which AIF should be extracted
 		# First job - find AIF peak image by finding the index of the maximum pixel value within the first 50 frames for the central slice
 		dynims=np.copy(self.dynims)
-		midslice=np.floor(dynims.shape[2]/2)
+		midslice=np.int(np.floor(dynims.shape[2]/2))
 		#slicegroup=[3,4,5,6,7,8,9,10,11]
 		peakframe=np.argmax(np.amax(np.amax(dynims[:,:,midslice,0:50],0),0))
+		print(peakframe)
 		if usesag==1:
-			midslice=np.floor(dynims.shape[1]/2)
-			peakframe=np.argmax(np.max(dynims[:,midslice,:,0:50],(0,1,)))			
+			midslice=np.int(np.floor(dynims.shape[1]/2))
+			peakframe=21
+			#peakframe=np.argmax(np.max(dynims[:,midslice,:,0:50],(0,1)))	
+			print(peakframe)		
 			dynims=np.swapaxes(np.swapaxes(dynims,0,2),0,1)
 
 
@@ -351,7 +370,7 @@ class patient(object): # patient inherits from the object class
 			AIF=np.mean(AIFtemp,2)
 		else:
 			ChooseAIF=ChooseAIF.split(',')
-			AIF=AIFtemp[int(ChooseAIF[1]),:,ChooseAIF[0]]
+			AIF=AIFtemp[int(ChooseAIF[1]),:,int(ChooseAIF[0])]
 		np.save(os.path.join(self.patientdirect,'Analysis','AIFall.npy'),AIFtemp)
 		np.save(os.path.join(self.patientdirect,'Analysis','AIF.npy'),AIF) #save chosen AIF in Analysis folder as AIF.
 		self.AIF=AIF
@@ -517,9 +536,10 @@ class patient(object): # patient inherits from the object class
 								tmp=fit.x[0]
 								fit.x[0]=fit.x[1]
 								fit.x[1]=tmp
-							else:
+							if seqtype=='SR':
 								fit=SRTurboFLASH.fittingfun(TIs,TR,flip,np.ceil(N/2),curve)
 							map[i,j,sl]=fit.x[0]
+							
 		# Save the map
 		if measnum==0:
 			np.save(os.path.join(self.patientdirect,'Analysis','T1map.npy'),map)
@@ -592,6 +612,7 @@ class patient(object): # patient inherits from the object class
 			self.iAUC=np.load(os.path.join(self.patientdirect,'Analysis','iAUC.npy'))
 
 	def get_EnhancingFraction(self, save=1, baselinepts=10, threshold=0):
+
 		#Method for enhancing fraction calculation
 		if not hasattr(self,'dynims'):
 			print("Use read_dynamics to load the dynamic images first")
@@ -630,9 +651,32 @@ class patient(object): # patient inherits from the object class
 		print('number of enhancing pixels = '+str(numenhancingpixels))
 		EnhancingFraction=numenhancingpixels/numtightmaskpixels
 		print('Enhancing Fraction = '+str(EnhancingFraction))
+
+		#Also calculate the initial rate of enhancement
+		#Find maximum
+		maxenhpos=np.argmax(self.dynims,axis=3)
+		t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+		IRE=np.zeros(maxenhpos.shape)
+		#Fit a straight line to the upslope, starting from each baseline point in turn
+		for i in range(self.dynims.shape[0]):
+			for j in range(self.dynims.shape[1]):
+				for k in range(self.dynims.shape[2]):
+					#extract curve
+					curve=self.dynims[i,j,k,0:maxenhpos[i,j,k]]
+					slopes=np.zeros(maxenhpos[i,j,k])
+					for l in range(1,maxenhpos[i,j,k]): #for all starting points before maximum:
+						slopes[l], intercept, r_value, p_value, std_err = scipy.stats.linregress(t[0:l],curve[0:l])
+						#And choose the maximum upslope
+						IRE[i,j,k]=np.max(slopes)
+
+		if save==1:
+			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'),maxenhancement)
+			np.save(os.path.join(self.patientdirect,'Analysis','EnhancingFraction.npy'),EnhancingFraction)
+			np.save(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'),IRE)
 		
 		self.EnhancingFraction=EnhancingFraction
 		self.MaxEnhancement=maxenhancement
+		self.InitialRateEnhancement=IRE
 
 	def get_EnhancingFractionConc(self, save=1, baselinepts=10, threshold=0):
 		#Method for enhancing fraction calculation but with concentration rather than SI
@@ -649,7 +693,6 @@ class patient(object): # patient inherits from the object class
 		#Make an array to hold the concentration curves:
 
 		Conccurves=np.zeros(self.dynims.shape)
-
 
 		#find TR and flip angle
 		flip=self.dyninfo['FlipAngle']
@@ -698,6 +741,13 @@ class patient(object): # patient inherits from the object class
 		
 		self.EnhancingFractionConc=EnhancingFraction
 		self.MaxEnhancementConc=maxenhancement
+		self.InitialRateEnhancement=IRE
+
+		if save==1:
+			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'),maxenhancement)
+			np.save(os.path.join(self.patientdirect,'Analysis','EnhancingFractionConc.npy'),EnhancingFraction)
+			np.save(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'),IRE)
+
 
 	def get_region_stats(self,image,mask): #Use a mask and an image to get mean, sd, median, quartiles and volume
 		mask=getattr(self,mask)
@@ -708,18 +758,19 @@ class patient(object): # patient inherits from the object class
 			return
 		# Num pixels
 		numpix=np.sum(mask)
+		numnans=np.sum(isnan(image[mask==1]))
 		# Mean
-		regionmean=np.mean(image[mask==1])
+		regionmean=np.nanmean(image[mask==1])
 		# SD
-		regionsd=np.std(image[mask==1])
+		regionsd=np.nanstd(image[mask==1])
 		# Median
-		regionmedian=np.median(image[mask==1])
+		regionmedian=np.nanmedian(image[mask==1])
 		# LQ
-		regionlq=np.percentile(image[mask==1],25)
+		regionlq=np.nanpercentile(image[mask==1],25)
 		# UQ
-		regionuq=np.percentile(image[mask==1],75)
+		regionuq=np.nanpercentile(image[mask==1],75)
 
-		print([numpix,regionmean,regionsd,regionmedian,regionlq,regionuq])
+		print([numpix,numnans,regionmean,regionsd,regionmedian,regionlq,regionuq])
 
 	def plot_mean_curve(self, image, mask, x=0): #Use a mask and an image to plot a mean curve from a region mask. Put time in x variable if required
 		image=getattr(self,image)
@@ -740,11 +791,64 @@ class patient(object): # patient inherits from the object class
 
 	# Fitting
 	#####################################################
-	def fit_Tofts(self):
+	def fit_Kety(self):
 		pass
 
-	def fit_ExtTofts(self):
-		pass
+	def fit_ExtKety(self, SIflag=0, save=1):
+		# To fit SI, set SIflag to 1, and to use second T1 measurement to correct SI curves, set use2ndT1=1
+
+		# check for an AIF
+		if not hasattr(self,'AIF'):
+			print('No AIF available')
+			return
+
+		# Check for T1 map(s)
+		if not hasattr(self,'T1map'):
+			print('No T1map available')
+			return
+
+		if not hasattr(self,'dynmask'):
+			print('No mask available')
+			return
+
+		self.ExtKetyfitConc=np.zeros((self.dynmask.shape+(4,)))
+		self.ExtKetyfitSI=np.zeros((self.dynmask.shape+(4,)))
+
+		TR=self.dyninfo['TR']/1000
+		flip=self.dyninfo['FlipAngle']
+		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+
+		if SIflag==1:
+			for sl in range(self.dynims.shape[2]):
+					count=0
+					total=np.sum(self.dynmask[:,:,sl])
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								count=count+1
+								print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
+								uptake=np.squeeze(self.dynims[i,j,sl,:])
+								T1base=self.T1map[i,j,sl]
+								fit=ExtKety.ExtKetyfittingSI(self.t, self.AIF/0.6, uptake, 15, TR, flip, T1base/1000)
+								self.ExtKetyfitSI[i,j,sl,:]=fit
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'),self.ExtKetyfitSI)
+
+
+		else:
+			for sl in range(self.dynims.shape[2]):
+					for i in range(self.dynims.shape[0]):
+						for j in range(0,self.dynims.shape[1]):
+							if self.dynmask[i,j,sl]==1:
+								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
+								print(i,j,sl)
+								if np.isnan(np.sum(uptakeConc))==0:
+									ExtKetyfitConc=ExtKety.ExtKetyfittingConc(self.t, self.AIF/0.6, uptakeConc)
+									self.ExtKetyfitConc[i,j,sl,:]=ExtKetyfitConc
+
+			if save==1:
+				np.save(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'),self.ExtKetyfitConc)
+
 
 	def fit_2CXM(self,SIflag,save,use2ndT1=0):
 		# To fit SI, set SIflag to 1, and to use second T1 measurement to correct SI curves, set use2ndT1=1
@@ -966,6 +1070,13 @@ class patient(object): # patient inherits from the object class
 		else:
 			self.TwoCUMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy'))
 
+	def load_TwoCUMConcparammaps(self):
+		#Method to load maps from numpy arrays
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','TwoCUMfitConcmaps.npy')):
+			print('No TwoCUMConc maps saved')
+			return
+		else:
+			self.TwoCUMfitConc=np.load(os.path.join(self.patientdirect,'Analysis','TwoCUMfitConcmaps.npy'))
 
 	def write_iAUC(self, dynfoldertag):
 		import time

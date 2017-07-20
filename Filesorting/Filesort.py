@@ -77,6 +77,8 @@ def Filesort_Siemens(direct,collapse_dynamics=1):
 
 	# Main directory
 	filenames=glob.glob(os.path.join(direct,'*.dcm'))
+	if len(filenames)==0:
+		filenames=glob.glob(os.path.join(direct,'*.IMA'))
 	print('Processing directory')
 
 	for N in filenames:
@@ -186,8 +188,14 @@ def dicom_renameSiemens(filename,dstfolder):
 
 	im=dicom.read_file(filename) # Read the file
 	seriesnum=im.SeriesNumber # Get the information to make the new file name
-	seriesnum='%02d' % seriesnum
-	seriesname=im.SeriesDescription
+	seriesnum='%03d' % seriesnum
+	if hasattr(im,'SeriesDescription'):
+		seriesname=im.SeriesDescription
+	elif hasattr(im, 'SequenceName'):
+		seriesname=im.SequenceName
+	else:
+		seriesname='POSSIBLE_NON_IMAGE'
+
 	seriesname=seriesname.replace('/','') # remove pesky forwardslashes!
 	seriesname=seriesname.replace('.','') # remove pesky dots!
 	seriesname=seriesname.replace('_','') # remove pesky underscores!
@@ -196,8 +204,8 @@ def dicom_renameSiemens(filename,dstfolder):
 	seriesname=seriesname.replace(']','') # Remove pesky square brackets!
 	imagenumber=im.InstanceNumber
 	imagenumber='%04d' % imagenumber
-	newname=str(seriesnum)+'_'+seriesname+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
-	# newname=str(seriesnum)+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
+	#newname=str(seriesnum)+'_'+seriesname+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
+	newname=str(seriesnum)+'_'+str(imagenumber)+'_'+seriesname+'.ima' # add a .dcm extension so we can find them all again afterwards
 	os.rename(filename,os.path.join(dstfolder,newname)) # Rename the file and move to destination
 
 ###############################################################################################

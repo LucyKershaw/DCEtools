@@ -82,7 +82,7 @@ def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
     #plt.figure()
 
     if toff is None:
-        firstthird=np.round(len(t)/3)
+        firstthird=int(np.round(len(t)/3))
         Ketystart=Ketystart+[t[1]]
         Ketybnds=((0.00001,0.999),(0.00001,2),(0.00001,30))
         Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP',options={'disp':False})
@@ -138,7 +138,7 @@ def TwoCUMfittingConc(t, AIF, uptake, toff):
     # If toff is set to None, rather than a number, calculate it using Tofts without vp from the first third of the curve
     #plt.figure()
 
-    firstthird=np.round(len(t)/3)
+    firstthird=int(np.round(len(t)/3))
     if toff is None:
         Ketystart=np.array((0.01,0.1,t[1])) # set starting guesses for Ktrans, ve, toff
         Ketystart=Ketystart+[t[1]]

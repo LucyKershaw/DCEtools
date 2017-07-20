@@ -2,8 +2,9 @@
 
 import numpy as np
 import scipy.optimize
+import matplotlib.pyplot as plt
 
-def SIeqn(paramsin,TIs,sequenceparams):
+def SIeqn(paramsin,TIs,sequenceparams,abs=1):
 	# return signal intensity
 
 	# paramsin is [T1,M0] - these are the unknowns
@@ -36,7 +37,10 @@ def SIeqn(paramsin,TIs,sequenceparams):
 	firstfraction=-1*(((D*E)+1)/(1+(B*D)))
 
 	#SI=np.fabs((M0*np.sin(radflip)*((firstfraction*(np.exp(-1*TIscorr/T1)*(a**(n-1))+((1-np.exp(-1*TIscorr/T1)*(a**(n-1))+(b*(1-(a**(n-1))/(1-a)))))))
-	SI=np.fabs((M0*np.sin(radflip))*((firstfraction*np.exp(-1*TIscorr/T1)*a**(n-1))+((1-np.exp(-1*TIscorr/T1))*a**(n-1))+(b*(1-a**(n-1))/(1-a))))
+	if abs==1:
+		SI=np.fabs((M0*np.sin(radflip))*((firstfraction*np.exp(-1*TIscorr/T1)*a**(n-1))+((1-np.exp(-1*TIscorr/T1))*a**(n-1))+(b*(1-a**(n-1))/(1-a))))
+	else:
+		SI=((M0*np.sin(radflip))*((firstfraction*np.exp(-1*TIscorr/T1)*a**(n-1))+((1-np.exp(-1*TIscorr/T1))*a**(n-1))+(b*(1-a**(n-1))/(1-a))))
 	return SI
 
 def fittingfun(TIs,sequenceparams,data):
@@ -51,4 +55,5 @@ def objfun(paramsin,TIs,sequenceparams,data):
 	SI=SIeqn(paramsin,TIs,sequenceparams)
 	chi2=np.sum((data-SI)**2)
 	return chi2
+
 
