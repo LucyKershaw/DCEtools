@@ -12,7 +12,7 @@ from tkinter import filedialog
 from roipoly import roipoly
 
 import scipy.misc
-import scipy.stats
+import scipy.signal
 import SRTurboFLASH
 import IRTurboFLASH
 import IRTrueFISP
@@ -652,22 +652,9 @@ class patient(object): # patient inherits from the object class
 		EnhancingFraction=numenhancingpixels/numtightmaskpixels
 		print('Enhancing Fraction = '+str(EnhancingFraction))
 
-		#Also calculate the initial rate of enhancement
-		#Find maximum
-		maxenhpos=np.argmax(self.dynims,axis=3)
-		t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
-		IRE=np.zeros(maxenhpos.shape)
-		#Fit a straight line to the upslope, starting from each baseline point in turn
-		for i in range(self.dynims.shape[0]):
-			for j in range(self.dynims.shape[1]):
-				for k in range(self.dynims.shape[2]):
-					#extract curve
-					curve=self.dynims[i,j,k,0:maxenhpos[i,j,k]]
-					slopes=np.zeros(maxenhpos[i,j,k])
-					for l in range(1,maxenhpos[i,j,k]): #for all starting points before maximum:
-						slopes[l], intercept, r_value, p_value, std_err = scipy.stats.linregress(t[0:l],curve[0:l])
-						#And choose the maximum upslope
-						IRE[i,j,k]=np.max(slopes)
+		#Also calculate the initial rate of enhancement using sav_golay filter
+		IRE=np.zeros(maxenhancement.shape)
+		IRE=np.amax(scipy.signal.savgol_filter(self.dynims,window_length=3, polyorder=1, deriv=1, axis=3),axis=3)
 
 		if save==1:
 			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'),maxenhancement)
@@ -730,18 +717,22 @@ class patient(object): # patient inherits from the object class
 		#Find the maximum enhancement then mask to tightmask
 		maxenhancement=np.ndarray.max(Conccurves,3)
 		maxenhancement=maxenhancement*self.dyntightmask
-		plt.figure()
-		plt.imshow(maxenhancement[:,:,10],interpolation='nearest',vmax=10)
-		plt.colorbar()
+		# plt.figure()
+		# plt.imshow(maxenhancement[:,:,10],interpolation='nearest',vmax=10)
+		# plt.colorbar()
 
 		numenhancingpixels=np.sum(maxenhancement>threshold)
 		print('number of enhancing pixels = '+str(numenhancingpixels))
 		EnhancingFraction=numenhancingpixels/numtightmaskpixels
 		print('Enhancing Fraction Conc= '+str(EnhancingFraction))
+
+		#Also calculate the initial rate of enhancement using sav_golay filter
+		IRE=np.zeros(maxenhancement.shape)
+		IRE=np.nanmax(scipy.signal.savgol_filter(Conccurves,window_length=3, polyorder=1, deriv=1, axis=3),axis=3)
 		
 		self.EnhancingFractionConc=EnhancingFraction
 		self.MaxEnhancementConc=maxenhancement
-		self.InitialRateEnhancement=IRE
+		self.InitialRateEnhancementConc=IRE
 
 		if save==1:
 			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'),maxenhancement)
