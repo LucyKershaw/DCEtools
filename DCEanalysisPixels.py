@@ -17,6 +17,7 @@ import SRTurboFLASH
 import IRTurboFLASH
 import IRTrueFISP
 import scipy.optimize
+import scipy.ndimage.morphology
 import TwoCXM
 import TwoCUM
 import AATH
@@ -104,6 +105,8 @@ class patient(object): # patient inherits from the object class
 			print('reading from saved array')
 			self.dynims=np.load(os.path.join(self.patientdirect,'Analysis','dynamics.npy'))
 			self.dyninfo=np.load(os.path.join(self.patientdirect,'Analysis','dyninfo.npy'))
+			self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+
 			return
 		# Use known series tag by calling disp_seriesfolders first
 		
@@ -135,7 +138,7 @@ class patient(object): # patient inherits from the object class
 				print('TemporalPositionIdentifier found')
 				numtimepoints=int(info.TemporalPositionIdentifier)
 				self.dyninfo['numtimepoints']=numtimepoints
-				self.dyninfo['tres']=float(info.AcquisitionDuration/numtimepoints)
+				self.dyninfo['tres']=round(float(info.AcquisitionDuration/numtimepoints),3)
 				numslices=int(len(dynfiles)/numtimepoints)
 				self.dyninfo['numslices']=numslices
 			else: #If the tag exists but it's empty, detect the number of series from the names
@@ -185,6 +188,7 @@ class patient(object): # patient inherits from the object class
 		np.save(os.path.join(self.patientdirect,'Analysis','dynamics.npy'),dynims)
 		np.save(os.path.join(self.patientdirect,'Analysis','dyninfo.npy'),self.dyninfo)
 		print("dynamic image array size is "+str(dynims.shape))
+		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
 		self.dynims=dynims
 
 	def read_T1data(self,seriestag,usefolders=range(0,5,1),measnum=0,VFA=0, multimeas=1): #Set VFA flag to 1 if necessary, multimeas is for multiple dynamics in a VFA
@@ -490,6 +494,149 @@ class patient(object): # patient inherits from the object class
 			self.dyntightmask=np.load(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'))
 
 
+	def read_analyze_roi(self):
+		
+		if not hasattr(self,'dyninfo'):
+			print('Read in the dyanmic data to check for ROI placement')
+			return
+		# Method to read in analyze img hdr rois from Sjogren's data
+		# Find the associated text file for checking later
+		txtfile=glob.glob(os.path.join(self.patientdirect,'Analysis','ROI','*.txt'))[0]
+		
+		import nibabel
+		# Look in pt_directory/analysis/roi img files
+		imgfiles=glob.glob(os.path.join(self.patientdirect,'Analysis','ROI','*.img'))
+		print('reading...')
+		print(imgfiles)
+		# Read the files
+		roi=nibabel.load(imgfiles[1])
+		MPRAGE=nibabel.load(imgfiles[0])
+		# extract pixel values
+		roidata=np.squeeze(roi.get_data())
+		MPRAGEdata=np.squeeze(MPRAGE.get_data())
+		#print(MPRAGEdata.dtype)
+
+		# Read the IPP, pixel spacing and matrix from the dicom header for the MPRAGE and dynamic data as well
+		MPRAGEfiles=glob.glob(os.path.join(self.dicomdirect,'*_MPRAGEp*/*.dcm'))
+		Dynfiles=glob.glob(os.path.join(self.dicomdirect,'*minutes*/*.dcm'))
+
+		#ImagePositionPatient
+		MPRAGEIPP0=np.array(dicom.read_file(MPRAGEfiles[0]).ImagePositionPatient)
+		MPRAGEIPPN=np.array(dicom.read_file(MPRAGEfiles[-1]).ImagePositionPatient)
+		DynIPP0=np.array(dicom.read_file(Dynfiles[0]).ImagePositionPatient)
+		DynIPPN=np.array(dicom.read_file(Dynfiles[-1]).ImagePositionPatient)
+
+		#ImageOrientationPatient
+		MPRAGEIOP=np.array(dicom.read_file(MPRAGEfiles[0]).ImageOrientationPatient)
+		DynIOP=np.array(dicom.read_file(Dynfiles[0]).ImageOrientationPatient)
+		
+		#PixelSpacing
+		MPRAGEPixelSpacing=dicom.read_file(MPRAGEfiles[0]).PixelSpacing
+		DynPixelSpacing=dicom.read_file(Dynfiles[0]).PixelSpacing
+
+		#Num rows, cols, slices
+		MPRAGErows=dicom.read_file(MPRAGEfiles[0]).Rows
+		MPRAGEcols=dicom.read_file(MPRAGEfiles[0]).Columns
+		MPRAGEslices=len(MPRAGEfiles)
+		Dynrows=dicom.read_file(Dynfiles[0]).Rows
+		Dyncols=dicom.read_file(Dynfiles[0]).Columns
+		Dynslices=int(self.dyninfo['numslices'])
+
+		# Affine for MPRAGE and Dynamic
+		# MPRAGE is sagittal, remember that dicom is LPS
+
+		MPRAGEA=np.zeros((4,4))
+		MPRAGEA[0:3,0]=MPRAGEIOP[3:6]*MPRAGEPixelSpacing[0]
+		MPRAGEA[0:3,1]=MPRAGEIOP[0:3]*MPRAGEPixelSpacing[1]
+		MPRAGEA[0:3,3]=MPRAGEIPP0
+		MPRAGEA[3,3]=1
+		MPRAGEA[0:3,2]=(MPRAGEIPP0-MPRAGEIPPN)/(1-MPRAGEslices)
+
+		#Dynamic is axial
+
+		DynA=np.zeros((4,4))
+		DynA[0:3,0]=DynIOP[3:6]*DynPixelSpacing[0]
+		DynA[0:3,1]=DynIOP[0:3]*DynPixelSpacing[1]
+		DynA[0:3,3]=DynIPP0
+		DynA[3,3]=1
+		DynA[0:3,2]=(DynIPP0-DynIPPN)/(1-Dynslices)		
+
+		# Now need to make grids from the affines
+		MPRAGEr=np.zeros((MPRAGErows,MPRAGEcols,MPRAGEslices))
+		MPRAGEc=np.zeros((MPRAGErows,MPRAGEcols,MPRAGEslices))
+		MPRAGEs=np.zeros((MPRAGErows,MPRAGEcols,MPRAGEslices))
+		#print(MPRAGEr.shape)
+
+		for r in range(MPRAGErows):
+			for c in range(MPRAGEcols):
+				for s in range(MPRAGEslices):
+					coords=MPRAGEA.dot([r,c,s,1])
+					MPRAGEr[r,c,s]=coords[0]
+					MPRAGEc[r,c,s]=coords[1]
+					MPRAGEs[r,c,s]=coords[2]
+
+		print(MPRAGEr.dtype)
+
+		Dynr=np.zeros((Dynrows,Dyncols,Dynslices))
+		Dync=np.zeros((Dynrows,Dyncols,Dynslices))
+		Dyns=np.zeros((Dynrows,Dyncols,Dynslices))
+		#print(Dynr.shape)
+
+		for r in range(Dynrows):
+			for c in range(Dyncols):
+				for s in range(Dynslices):
+					coords=DynA.dot([r,c,s,1])
+					Dynr[r,c,s]=coords[0]
+					Dync[r,c,s]=coords[1]
+					Dyns[r,c,s]=coords[2]
+
+		print(Dynr.dtype)	
+
+		#Reorient data from nifti format to match dicom
+		print('Reorienting nifti data')
+		print(MPRAGEdata.dtype)
+		MPRAGEdatanew=np.moveaxis(MPRAGEdata,0,2)
+		MPRAGEdatanew=np.fliplr(np.rot90(MPRAGEdatanew)).astype('<f4')
+
+		#print(MPRAGEdatanew.dtype)
+		#print(MPRAGEdatanew.shape)
+
+		roidatanew=np.moveaxis(roidata,0,2)
+		roidatanew=np.fliplr(np.rot90(roidatanew))
+
+		#print(roidatanew.dtype)
+
+		print('Interpolating MPRAGE...')
+		# Interpolate MPRAGE image data with dynamic grid
+		MPRAGEasDyn=scipy.interpolate.griddata((MPRAGEr.flatten(),MPRAGEc.flatten(),MPRAGEs.flatten()),MPRAGEdatanew.flatten(),(Dynr,Dync,Dyns),method='nearest')
+
+		print('Interpolating ROI...')
+		# Interpolate MPRAGE roi data with dynamic grid
+		ROIasDyn=scipy.interpolate.griddata((MPRAGEr.flatten(),MPRAGEc.flatten(),MPRAGEs.flatten()),roidatanew.flatten(),(Dynr,Dync,Dyns),method='nearest')
+
+		# Reorient the data to appear as we would expect (L on right of image)
+		#MPRAGEasDyn=np.rot90(MPRAGEasDyn,1)
+		#ROIasDyn=np.rot90(ROIasDyn,1)
+
+		#Quick visual check on one slice, also print text file
+		import overlay
+		overlay.overlay(MPRAGEasDyn[:,:,8],ROIasDyn[:,:,8],0.5,6)
+		overlay.overlay(self.dynims[:,:,8,10],ROIasDyn[:,:,8],0.5,6)
+		plt.figure();plt.imshow(ROIasDyn[:,:,8])
+		with open(txtfile) as f:
+			for line in f:
+				print(line)
+
+		self.ROIinfo=np.genfromtxt(txtfile,delimiter="'",usecols=1,dtype=str,autostrip='True')
+
+		self.MPRAGEasDyn=MPRAGEasDyn
+		self.ROIasDyn=ROIasDyn
+
+		np.save(os.path.join(self.patientdirect,'Analysis','MPRAGEasDyn.npy'),MPRAGEasDyn)
+		np.save(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'),ROIasDyn)
+
+
+
 	def make_T1map(self,seqtype='IR',measnum=0): # method to do T1 fitting, seqtype is either IR, SR, IRTrueFISP or VFA
 		#if not hasattr(self, 'T1data'):
 		#	print('Read the T1 data first - patient.read_T1data()')
@@ -741,15 +888,15 @@ class patient(object): # patient inherits from the object class
 
 
 	def get_region_stats(self,image,mask): #Use a mask and an image to get mean, sd, median, quartiles and volume
-		mask=getattr(self,mask)
-		image=getattr(self,image)
+		#mask=getattr(self,mask)
+		#image=getattr(self,image)
 		# Check image and mask are the same shape
 		if mask.shape != image.shape:
 			print('Image and mask need to be the same shape and size')
 			return
 		# Num pixels
 		numpix=np.sum(mask)
-		numnans=np.sum(isnan(image[mask==1]))
+		numnans=np.sum(np.isnan(image[mask==1]))
 		# Mean
 		regionmean=np.nanmean(image[mask==1])
 		# SD
@@ -761,7 +908,9 @@ class patient(object): # patient inherits from the object class
 		# UQ
 		regionuq=np.nanpercentile(image[mask==1],75)
 
-		print([numpix,numnans,regionmean,regionsd,regionmedian,regionlq,regionuq])
+		#print([numpix,numnans,regionmean,regionsd,regionmedian,regionlq,regionuq])
+		self.get_region_stats_result=[numpix,numnans,regionmean,regionsd,regionmedian,regionlq,regionuq]
+		
 
 	def plot_mean_curve(self, image, mask, x=0): #Use a mask and an image to plot a mean curve from a region mask. Put time in x variable if required
 		image=getattr(self,image)
@@ -777,6 +926,100 @@ class patient(object): # patient inherits from the object class
 			plt.plot(x,curve)
 		self.meancurve=curve
 		np.save(os.path.join(self.patientdirect,'Analysis','meancurve.npy'),curve)
+
+	def apply_analyze_rois(self):
+		#Method to apply the read in rois to the following maps:
+		#T1
+		#MaxEnh
+		#MaxEnhConc
+		#Initial rate of enhancement
+		#Initial rate of enhancement Conc
+		#Ktrans
+		
+		#Check if maps are read in, if not then read in if present
+
+		if (not hasattr(self,'T1map')): # If the map isn't present....
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','T1map.npy'))): #...and the file exists...
+				print('loading T1 map')
+				self.load_T1map() #... load it
+			else: # Or report that it's not found
+				print('T1 map not found')
+
+		if (not hasattr(self,'MaxEnhancement')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))):
+				print('Loading MaxEnh')
+				self.MaxEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))
+			else:
+				print('Maximum Enhancement map not found')
+
+		if (not hasattr(self,'MaxEnhancementConc')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))):
+				print('Loading MaxEnhConc')
+				self.MaxEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))
+			else:
+				print('Maximum Enhancement Conc map not found')
+
+		if (not hasattr(self,'InitialRateEnhancement')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))):
+				print('Loading InitialRate Enhancement')
+				self.InitialRateEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))
+			else:
+				print('Initial Rate Enhancement map not found')
+
+		if (not hasattr(self,'InitialRateEnhancementConc')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))):
+				print('Loading Initial Rate enhancement Conc')
+				self.InitialRateEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))
+			else:
+				print('Initial Rate Enhancement Conc map not found')
+
+		if (not hasattr(self,'ExtKetyfitSI')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))):
+				print('Loading Ext KetyfitSImaps')
+				self.ExtKetyfitSI=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))
+			else:
+				print('Ext Kety fit SI maps not found')
+
+		if (not hasattr(self,'ExtKetyfitConc')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))):
+				print('Loading ExtKetyfitConc')
+				self.ExtKetyfitConc=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))
+			else:
+				print('Ext Kety fit Conc maps not found')
+
+		#Find out the numbers denoting ROIs present
+		ROIlabels=list(set(self.ROIasDyn.flatten()))
+		print(ROIlabels)
+		#Work through masks and maps, printing out results
+		for X in ROIlabels[1:]:
+			if hasattr(self, 'T1map'):
+				self.get_region_stats(self.T1map,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', T1map, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
+
+			if hasattr(self, 'MaxEnhancement'):
+				self.get_region_stats(self.MaxEnhancement,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', MaxEnhancement, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
+
+			if hasattr(self, 'MaxEnhancementConc'):
+				self.get_region_stats(self.MaxEnhancementConc,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', MaxEnhancementConc, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
+
+			if hasattr(self, 'InitialRateEnhancement'):
+				self.get_region_stats(self.InitialRateEnhancement,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', InitialRateEnhancement, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
+
+			if hasattr(self, 'InitialRateEnhancementConc'):
+				self.get_region_stats(self.InitialRateEnhancementConc,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', InitialRateEnhancementConc, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
+
+			if hasattr(self, 'ExtKeyfitSI'):
+				self.get_region_stats(self.ExtKetyfitSI[:,:,:,0],scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', ExtKeyfitSI, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))			
+
+			if hasattr(self, 'ExtKetyfitConc'):
+				self.get_region_stats(self.ExtKetyfitConc[:,:,:,0],scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
+				print(self.patientdirect.split('/')[-1]+', ExtKetyfitConc, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
+
 
 
 
@@ -807,7 +1050,7 @@ class patient(object): # patient inherits from the object class
 
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
-		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+		
 
 		if SIflag==1:
 			for sl in range(self.dynims.shape[2]):
@@ -870,8 +1113,7 @@ class patient(object): # patient inherits from the object class
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
 		rflip=flip*np.pi/180
-		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
-
+	
 		if SIflag==1:
 			# Check if second T1 map is to be used for correction, if so calculate correction matrix
 			if use2ndT1==1:
@@ -913,9 +1155,9 @@ class patient(object): # patient inherits from the object class
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitConcmaps.npy'),self.TwoCXMfitConc)
 
-	def fit_2CUM(self,SIflag,save,use2ndT1=0):
+	def fit_2CUM(self,SIflag,save,usebothT1=0,use2ndT1=0):
 		# To fit SI, set SIflag to 1, and to use second T1 measurement to correct SI curves, set use2ndT1=1
-		if SIflag==0 and use2ndT1==1:
+		if SIflag==0 and (use2ndT1==1 or usebothT1==1):
 			print('Concentration fitting with second T1 not yet implemented')
 			return
 		# To fit SI, set SIflag to 1
@@ -928,7 +1170,7 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'T1map'):
 			print('No T1map available')
 			return
-		if use2ndT1==1 and not hasattr(self,'T1map2'):
+		if (use2ndT1==1 or usebothT1==1) and not hasattr(self,'T1map2'):
 			print('Second T1map not found')
 			return
 
@@ -941,11 +1183,11 @@ class patient(object): # patient inherits from the object class
 		
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
-		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+		
 
 		if SIflag==1:
 			# Check if second T1 map is to be used for correction, if so calculate correction matrix
-			if use2ndT1==1:
+			if usebothT1==1:
 				SI0=np.mean(self.dynims[:,:,:,1:15],3) #find mean of beginning
 				SI1=np.mean(self.dynims[:,:,:,-15:],3) #find mean of end
 				M0=FLASH.CalcM0(SI0,TR,flip,self.T1map/1000)
@@ -962,10 +1204,12 @@ class patient(object): # patient inherits from the object class
 							print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
 							uptake=np.squeeze(self.dynims[i,j,sl,:])
 							#if correcting with second T1map, do that now
-							if use2ndT1==1:
+							if usebothT1==1:
 								uptake=k[i,j,sl]*(uptake-SI0[i,j,sl])+SI0[i,j,sl]
 							T1base=self.T1map[i,j,sl]
-							fit=TwoCUM.TwoCUMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
+							if use2ndT1==1:
+								T1base=self.T1map2[i,j,sl]
+							fit=TwoCUM.TwoCUMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.0003,0.03],use2ndT1)
 							self.TwoCUMfitSI[i,j,sl,:]=fit
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImapsBothT1.npy'),self.TwoCUMfitSI)
@@ -995,8 +1239,7 @@ class patient(object): # patient inherits from the object class
 
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
-		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
-
+		
 		if SIflag==1:
 			for sl in range(self.dynims.shape[2]):
 					count=0
@@ -1060,6 +1303,14 @@ class patient(object): # patient inherits from the object class
 			return
 		else:
 			self.TwoCUMfitSI=np.load(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImaps.npy'))
+
+	def load_TwoCUMSIparammapsBothT1(self):
+		#Method to load maps from numpy arrays
+		if not os.path.isfile(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImapsBothT1.npy')):
+			print('No TwoCUMSIBothT1 maps saved')
+			return
+		else:
+			self.TwoCUMfitSIBothT1=np.load(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImapsBothT1.npy'))
 
 	def load_TwoCUMConcparammaps(self):
 		#Method to load maps from numpy arrays

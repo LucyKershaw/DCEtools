@@ -204,8 +204,8 @@ def dicom_renameSiemens(filename,dstfolder):
 	seriesname=seriesname.replace(']','') # Remove pesky square brackets!
 	imagenumber=im.InstanceNumber
 	imagenumber='%04d' % imagenumber
-	#newname=str(seriesnum)+'_'+seriesname+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
-	newname=str(seriesnum)+'_'+str(imagenumber)+'_'+seriesname+'.ima' # add a .dcm extension so we can find them all again afterwards
+	newname=str(seriesnum)+'_'+seriesname+'_'+str(imagenumber)+'.dcm' # add a .dcm extension so we can find them all again afterwards
+	#newname=str(seriesnum)+'_'+str(imagenumber)+'_'+seriesname+'.ima' # add a .dcm extension so we can find them all again afterwards
 	os.rename(filename,os.path.join(dstfolder,newname)) # Rename the file and move to destination
 
 ###############################################################################################

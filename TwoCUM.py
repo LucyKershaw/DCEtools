@@ -50,9 +50,17 @@ def Kety(params,t,AIF):
     Ktrans, ve, toff = params
 
     # Shift the AIF by the amount toff
-    tnew = t - toff
-    f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
-    AIFnew = (t>toff)*f(t-toff)
+    #tnew = t - toff
+    #f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
+    #AIFnew = (t>toff)*f(t-toff)
+
+    # Shift the AIF by the number of time points closest to the fitted toff
+    # Find closest point:
+    toffrnd=np.argmin(abs(t-toff))
+    # Shift the AIF
+    AIFnew=np.roll(AIF,toffrnd)
+    # Set early points before toff to zero
+    AIFnew = (t>t[toffrnd])*AIFnew
 
     imp=Ktrans*np.exp(-1*Ktrans*t/ve); # Calculate the impulse response function
     convolution=np.convolve(AIFnew,imp) # Convolve impulse response with AIF
@@ -60,23 +68,22 @@ def Kety(params,t,AIF):
     return G
 
 
-# Function to fit the TwoCXM model using scipy.optimize  
+# Function to fit the TwoCUM model using scipy.optimize  
 # Note that AIF is PLASMA
 
-def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketystart):
+def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketystart,use2ndT1=0):
     import numpy as np
     import scipy.optimize 
     import scipy.interpolate
     import matplotlib.pyplot as plt 
     import FLASH
 
-    #calculate M0 to use in conversion
-    rflip=flip*np.pi/180
-    R1base=1/T1base
-    base=np.mean(uptake[0:baselinepts])
-    #print(base)
-    M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
-    #print(M0)
+    #calculate M0 to use in conversion for toff - use dummy T1 if using 2nd T1
+    M0=FLASH.CalcM0(np.mean(uptake[0:baselinepts]), TR, flip, T1base)
+    T1temp=T1base
+    if use2ndT1==1:
+        M0=FLASH.CalcM0(np.mean(uptake[0:baselinepts]), TR, flip, 1)
+        T1temp=1
 
     # If toff is set to None, rather than a number, calculate it using Tofts without vp
     #plt.figure()
@@ -85,35 +92,53 @@ def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
         firstthird=int(np.round(len(t)/3))
         Ketystart=Ketystart+[t[1]]
         Ketybnds=((0.00001,0.999),(0.00001,2),(0.00001,30))
-        Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP',options={'disp':False})
+        Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1temp,M0),bounds=Ketybnds,method='SLSQP',options={'ftol':1e-12,'disp':False,'maxiter':1000})
+        #Ketyresult=scipy.optimize.minimize(Ketyobjfun,Ketyresult.x,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird],TR,flip,T1temp,M0),bounds=Ketybnds,method='SLSQP',options={'ftol':1e-12,'disp':False,'maxiter':1000})
         toff=Ketyresult.x[2]
-        #print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x[2]))
+        print('Success? '+str(Ketyresult.success)+' toff='+str(Ketyresult.x)+str(Ketyresult.fun))
         concdata=Kety(Ketyresult.x,t,AIF)
-        #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1base,M0),'b')
-        #plt.plot(t,AIF)
+        #plt.figure()
+        #plt.plot(t[0:firstthird],FLASH.Conc2SI(concdata[0:firstthird],TR,flip,T1temp,M0),'b')
 
+    #Then if toff is zero, do nothing with the AIF
     if toff==0:
         AIFnew=AIF
 
+    #Or if toff is a number, either given in the argument or from the Kety fit, shift the toff
     else:
-        # Shift the AIF by the amount toff
-        tnew = t - toff
-        f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
-        AIFnew = (t>=toff)*f(t-toff)
-        #plt.plot(t,AIFnew)
+        # Shift the AIF by the number of time points closest to the fitted toff
+        # Find closest point:
+        toffrnd=np.argmin(abs(t-toff))
+        # Shift the AIF
+        AIFnew=np.roll(AIF,toffrnd)
+        # Set early points before toff to zero
+        AIFnew = (t>t[toffrnd])*AIFnew
+        #print((t>t[toffrnd])[0:5])
+        #print(AIFnew[0:5])
+
+    #plt.plot(t,AIF)
+    #plt.plot(t,AIFnew,'k')
+
+    #Recalculate M0 correctly for the portion of the curve matching the T1 measurement
+    M0=FLASH.CalcM0(np.mean(uptake[0:baselinepts]), TR, flip, T1base)
+    if use2ndT1==1:
+        M0=FLASH.CalcM0(np.mean(uptake[-1*baselinepts:]), TR, flip, T1base)
 
     # Fit the TwoCUM model, stepping through vp
     vpmatrix=np.arange(0.01,1,0.01)   
     
     # Parameters to fit are E, Fp
-    startguess=np.array((0.01,0.5))  # Set starting guesses
+    startguess=np.array((0.01,0.005))  # Set starting guesses
     bnds=((0.00001,0.999),(0.00001,10)) # Set upper and lower bounds for parameters
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
     for i in range (0,len(vpmatrix)):
-        Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'maxiter':1000})
+        Result=scipy.optimize.minimize(objfun,startguess,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0,use2ndT1),bounds=bnds, method='SLSQP',options={'ftol':1e-12,'disp':False,'maxiter':1000})
+        #Result=scipy.optimize.minimize(objfun,Result.x,args=(np.array([vpmatrix[i]]),t,AIFnew,uptake,TR,flip,T1base,M0,use2ndT1),bounds=bnds, method='SLSQP',options={'ftol':1e-12,'disp':False,'maxiter':1000})
         #print(Result.x,vpmatrix[i],Result.fun,Result.success)
         resultsmatrix[i,:]=(Result.x[0],Result.x[1],vpmatrix[i],Result.fun,toff,Result.status)
+        Result=[]
+        #print(startguess)
 
     #print(resultsmatrix)
     try:
@@ -123,9 +148,9 @@ def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
         bestresult=[0,0,0,0,0,0]
 
     
-    #print(bestresult)
+    print(bestresult)
     #plt.plot(t,uptake,'x')
-    #plt.plot(t,FLASH.Conc2SI(TwoCXM(bestresult[0:3],t,AIF,toff),TR,flip,T1base,M0),'r')
+    #plt.plot(t,FLASH.Conc2SI(TwoCUM(bestresult[0:3],t,AIF,toff),TR,flip,T1base,M0,use2ndT1),'r')
 
     return bestresult
 
@@ -182,6 +207,7 @@ def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):
     import FLASH
     concdata=Kety(paramsin,t,AIF)
     temp=data-FLASH.Conc2SI(concdata,TR,flip,T1base,M0)
+    #print(np.sqrt(np.sum(temp**2)))
     return np.sqrt(np.sum(temp**2))
 
 def KetyobjfunConc(paramsin,t,AIF,data):
@@ -189,12 +215,12 @@ def KetyobjfunConc(paramsin,t,AIF,data):
     temp=data-Kety(paramsin,t,AIF)
     return np.sqrt(np.sum(temp**2))
 
-def objfun(paramsin,vp,t,AIF,data,TR,flip,T1base,M0):
+def objfun(paramsin,vp,t,AIF,data,TR,flip,T1base,M0,use2ndT1=0):
     import numpy as np
     import FLASH
     allparams=np.concatenate((paramsin,vp))
     concdata=TwoCUM(allparams,t,AIF,None)
-    temp=data-FLASH.Conc2SI(concdata,TR,flip,T1base,M0)
+    temp=data-FLASH.Conc2SI(concdata,TR,flip,T1base,M0,use2ndT1)
     return np.sqrt(np.sum(temp**2))
     
 def objfunConc(paramsin,vp,t,AIF,data):
