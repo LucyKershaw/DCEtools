@@ -155,7 +155,10 @@ class patient(object): # patient inherits from the object class
 			print('No temporal position identifier tag, using AcquisitionNumber')
 			numtimepoints=int(info.AcquisitionNumber)
 			self.dyninfo['numtimepoints']=numtimepoints
-			self.dyninfo['tres']=float(info[0x0051,0x100a].value.split('TA ')[1])
+			try:
+				self.dyninfo['tres']=float(info[0x0051,0x100a].value.split('TA ')[1])
+			except TypeError:
+				self.dyninfo['tres']=float(info[0x0051,0x100a].value.decode('ASCII').split('TA ')[1]) # Added to take account of new anon using OB rather than LO
 			numslices=int(len(dynfiles)/numtimepoints)
 			self.dyninfo['numslices']=numslices
 
@@ -236,7 +239,7 @@ class patient(object): # patient inherits from the object class
 			T1files=glob.glob(os.path.join(self.dicomdirect,T1Folders[y],'*.dcm')) # find dicom files
 			temp=dicom.read_file(T1files[0]) # read first one
 			if VFA==0:
-				T1info['TIs'][0][y]=temp[0x2001,0x101b].value # set the TI value in T1info
+				T1info['TIs'][0][y]=temp[0x0018,0x0082].value # set the TI value in T1info
 			if VFA==1:
 				T1info['FlipAngle'][0][y]=float(temp.FlipAngle)
 			
@@ -770,6 +773,7 @@ class patient(object): # patient inherits from the object class
 
 
 		#Find the sd in the baseline
+		baselinemean=np.mean(self.dynims[:,:,:,1:baselinepts],3)
 		baselinestd=np.std(self.dynims[:,:,:,1:baselinepts],3)
 		#plt.figure()
 		#plt.imshow(baselinestd[:,:,10]*self.dyntightmask[:,:,10],interpolation='nearest')
@@ -798,6 +802,9 @@ class patient(object): # patient inherits from the object class
 		print('number of enhancing pixels = '+str(numenhancingpixels))
 		EnhancingFraction=numenhancingpixels/numtightmaskpixels
 		print('Enhancing Fraction = '+str(EnhancingFraction))
+
+		# Calculate the max enhancement as a % of baseline for comparison with other datasets
+		maxenhancement=maxenhancement/(baselinemean*self.dyntightmask)
 
 		#Also calculate the initial rate of enhancement using sav_golay filter
 		IRE=np.zeros(maxenhancement.shape)
