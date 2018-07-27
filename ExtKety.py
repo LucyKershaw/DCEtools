@@ -36,7 +36,7 @@ def ExtKetyobjfunSI(paramsin,t,AIF,data, TR, flip, T1base, M0):
     return np.sqrt(np.sum(temp**2))
 
 
-def ExtKetyfittingConc(t, AIF, uptake):
+def ExtKetyfittingConc(t, AIF, uptake, plot='off'):
     import numpy as np
     import scipy.optimize 
     import scipy.interpolate
@@ -47,12 +47,13 @@ def ExtKetyfittingConc(t, AIF, uptake):
     Ketystart=np.array((0.2,0.1,0.01,t[1])) # set starting guesses for Ktrans, ve, vp, toff
     Ketybnds=((0.00001,999),(0.00001,1),(0.00001,1),(0.00001,20))
     ExtKetyresult=scipy.optimize.minimize(ExtKetyobjfun,Ketystart,args=(t,AIF,uptake),bounds=Ketybnds,method='SLSQP',options={'disp':False})
-            
-    #plt.plot(t,ExtKety(ExtKetyresult.x[0:4],t,AIF))
-    #plt.plot(t,uptake)
-    #print(ExtKetyresult.x)
-    print(ExtKetyresult.success)
-    return(ExtKetyresult.x)
+    
+    if plot=='on':
+        plt.plot(t,ExtKety(ExtKetyresult.x[0:4],t,AIF))
+        plt.plot(t,uptake)
+    #print(ExtKetyresult)
+    #print(ExtKetyresult.success)
+    return(ExtKetyresult.x, ExtKetyresult.fun)
 
 def ExtKetyfittingSI(t, AIF, uptake, baselinepts, TR, flip, T1base):
     import numpy as np
@@ -74,7 +75,7 @@ def ExtKetyfittingSI(t, AIF, uptake, baselinepts, TR, flip, T1base):
     ExtKetyresult=scipy.optimize.minimize(ExtKetyobjfunSI,Ketystart,args=(t,AIF,uptake,TR,flip,T1base,M0),bounds=Ketybnds,method='SLSQP',options={'disp':False})
 
     print(ExtKetyresult.success)
-    return(ExtKetyresult.x)
+    return(ExtKetyresult.x, ExtKetyresult.fun)
 
 
 

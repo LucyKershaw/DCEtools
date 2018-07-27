@@ -19,8 +19,8 @@ def SIeqn(paramsin, TIs, TR):
 	return np.fabs(SI)
 
 def fittingfun(TIs,TR,data):
-	startguess=[1000,10]
-	bnds=((0,3000),(0,10000)) # Set upper and lower bounds for parameters
+	startguess=[500,10]
+	bnds=((0,5000),(0,10000)) # Set upper and lower bounds for parameters
 	fit=scipy.optimize.minimize(objfun,startguess,args=(TIs,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'eps':1e-10,'maxiter':1000})
 	return fit
 

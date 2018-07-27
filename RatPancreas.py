@@ -105,6 +105,63 @@ class ratdata(object):
 		print("dynamic image array size is "+str(dynims.shape))
 		self.dynims=dynims
 
+	def read_MOLLI(self,seriestag,PreOrPost): #Method to read in single slice MOLLI images, by filename due to poor dicom conversion
+		#Look for MOLLIpre and MOLLIpost.npy in the Analysis folder first
+		if PreOrPost=='Pre' and os.path.isfile(os.path.join(os.path.split(self.datadirect)[0],'Analysis','MOLLIpre.npy')):
+			print('reading from saved array')
+			self.MOLLIpre=np.load(os.path.join(os.path.split(self.datadirect)[0],'Analysis','MOLLIpre.npy'))
+			#self.dyninfo=np.load(os.path.join(os.path.split(self.datadirect)[0],'Analysis','dyninfo.npy'))
+			return
+
+		if PreOrPost=='Post' and os.path.isfile(os.path.join(os.path.split(self.datadirect)[0],'Analysis','MOLLIpost.npy')):
+			print('reading from saved array')
+			self.MOLLIpost=np.load(os.path.join(os.path.split(self.datadirect)[0],'Analysis','MOLLIpost.npy'))
+			#self.dyninfo=np.load(os.path.join(os.path.split(self.datadirect)[0],'Analysis','dyninfo.npy'))
+			
+
+
+		# Use known series tag by calling disp_seriesfolders first
+		# Find folder that matches seriestag
+		MOLLIFolder=glob.glob(os.path.join(self.datadirect,seriestag))
+		if not MOLLIFolder:
+			print('Folder not found')
+			return
+		print('Found ',MOLLIFolder[0])
+
+		# Find all the filenames
+		MOLLIfiles=glob.glob(os.path.join(self.datadirect,MOLLIFolder[0],'*.dcm'))
+		numfiles=len(MOLLIfiles)
+		print("Reading "+str(numfiles)+" MOLLI files")
+
+		# Read the last file to work out size, check for manufacturer and fill out info variables
+		info=dicom.read_file(MOLLIfiles[-1])
+		im=info.pixel_array
+		# Find pixel sizes and other required dynamic info
+		# self.dyninfo=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8'),('tres','f8'),('numtimepoints','i4'),('numslices','i4')])
+		# self.dyninfo['pixelsize']=float(info.PixelSpacing[0])
+		# self.dyninfo['TR']=float(info.RepetitionTime)
+		# self.dyninfo['FlipAngle']=float(info.FlipAngle)
+
+		# Make an array to hold the dynamic data
+		MOLLIims=np.zeros((im.shape[0],im.shape[1],numfiles),dtype='uint16')
+		
+		# Read files into the array
+		for i in range(0,len(MOLLIfiles)):
+			temp=dicom.read_file(MOLLIfiles[i]) # Read file
+			MOLLIims[:,:,i]=np.flipud(temp.pixel_array) # Read into the right part of the array
+
+		# save this file as an npy array for next time
+
+		if PreOrPost=='Pre':
+			np.save(os.path.join(os.path.split(self.datadirect)[0],'Analysis','MOLLIpre.npy'),MOLLIims)
+			#np.save(os.path.join(os.path.split(self.datadirect)[0],'Analysis','dyninfo.npy'),self.dyninfo)
+			self.MOLLIpre=MOLLIims
+
+		if PreOrPost=='Post':
+			np.save(os.path.join(os.path.split(self.datadirect)[0],'Analysis','MOLLIpost.npy'),MOLLIims)
+			#np.save(os.path.join(os.path.split(self.datadirect)[0],'Analysis','dyninfo.npy'),self.dyninfo)
+			self.MOLLIpost=MOLLIims
+
 	def calc_percentenh(self):
 		#Method to calculate percentage enhancement over baseline
 		baseline=np.mean(self.dynims[:,:,:5],2)

@@ -1,6 +1,6 @@
 # Module to do AIF choosing from pixels
 
-def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2):
+def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2, blinepts=15):
 	# TR should be in seconds
 	import numpy as np
 	import matplotlib.pyplot as plt
@@ -42,7 +42,7 @@ def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2):
 			for j in range(-4,5):
 				vesselx=np.int(np.round(vesselpos[v][0]))
 				vessely=np.int(np.round(vesselpos[v][1]))
-				axarr[i+4,j+4].plot(FLASH.SI2Conc(dynimages[vessely+i,vesselx+j,slice,:],TR,flip,1.68,15,None))
+				axarr[i+4,j+4].plot(FLASH.SI2Conc(dynimages[vessely+i,vesselx+j,slice,:],TR,flip,1.68,blinepts,None))
 				axarr[i+4,j+4].set_xticklabels([])
 				axarr[i+4,j+4].tick_params(labelsize=8)
 				axarr[i+4,j+4].set_xbound([0,dynimages.shape[3]])
@@ -68,15 +68,16 @@ def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2):
 		AIFij=[[int((x-np.remainder(x,9))/9),np.remainder(x,9)] for x in ChosenAIFs]
 		#print(AIFij)
 		chosenSIcurves=np.zeros((len(ChosenAIFs),dynimages.shape[3]))
-		chosenConccurves=chosenSIcurves
+		chosenConccurves=np.zeros((len(ChosenAIFs),dynimages.shape[3]))
 
 		# And extract them
 		for p in range(0,len(AIFij)):
 			chosenSIcurves[p,:]=np.squeeze(dynimages[vessely+AIFij[p][0]-4,vesselx+AIFij[p][1]-4,slice,:])
-			chosenConccurves[p,:]=FLASH.SI2Conc(chosenSIcurves[p,:],TR,flip,1.68,15,None)
-	
+			chosenConccurves[p,:]=FLASH.SI2Conc(chosenSIcurves[p,:],TR,flip,1.68,blinepts,None)
+		
 		#Make the mean of the chosen curves and return
 		AIF[v,:]=np.mean(chosenConccurves,0)
+		AIFSI=np.mean(chosenSIcurves,0)
 
 
 	return AIF

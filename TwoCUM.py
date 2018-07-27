@@ -184,7 +184,7 @@ def TwoCUMfittingConc(t, AIF, uptake, toff):
 
     # Fit the TwoCXM model, stepping through vp
     vpmatrix=np.arange(0.01,1,0.01) #was 0.01 start
-    # Parameters to fit are E, Fp, ve
+    # Parameters to fit are E, Fp
     startguess=np.array((0.1,0.5))  # Set starting guesses
     bnds=((0.00001,2),(0.00001,10)) # Set upper and lower bounds for parameters
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
@@ -198,8 +198,8 @@ def TwoCUMfittingConc(t, AIF, uptake, toff):
     bestindex=np.nanargmin(resultsmatrix[:,3])
     bestresult=resultsmatrix[bestindex,:]
     #print(bestresult)
-    #plt.plot(t,uptake,'x')
-    #plt.plot(t,TwoCXM(bestresult[0:3],t,AIF,toff))
+    plt.plot(t,uptake,'rx')
+    plt.plot(t,TwoCUM(bestresult[0:3],t,AIF,toff),'k-',linewidth=4)
     return bestresult
 
 def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):

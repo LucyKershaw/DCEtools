@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import os
 import glob
 import shutil
+import csv
 from tkinter import Tk
 from tkinter import filedialog
 from roipoly import roipoly
@@ -25,6 +26,7 @@ import ExtKety
 import FLASH
 import getAIF
 import pprint
+import overlay
 
 class patient(object): # patient inherits from the object class
 	
@@ -41,6 +43,12 @@ class patient(object): # patient inherits from the object class
 			self.patientdirect=direct
 			direct=os.path.join(direct,'DICOM')
 			self.dicomdirect=direct
+
+		if os.path.isfile(os.path.join(self.patientdirect,'Analysis','hct.npy')):
+			self.hct=np.load(os.path.join(self.patientdirect,'Analysis','hct.npy'))
+		else: 
+			print('No hct found in patient folder, using default value of 0.4')
+			self.hct=0.4
 
 	# method for displaying data attributed
 	def disp_attr(self):
@@ -194,7 +202,8 @@ class patient(object): # patient inherits from the object class
 		self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
 		self.dynims=dynims
 
-	def read_T1data(self,seriestag,usefolders=range(0,5,1),measnum=0,VFA=0, multimeas=1): #Set VFA flag to 1 if necessary, multimeas is for multiple dynamics in a VFA
+	def read_T1data(self, seriestag, measnum=0, usefolders=range(0,6,1), VFA=0, multimeas=1):
+	 #Set VFA flag to 1 if necessary, multimeas is for multiple dynamics in a VFA
 		T1Folders=glob.glob(os.path.join(self.dicomdirect,seriestag))
 		if not T1Folders:
 			print('Folder not found')
@@ -307,7 +316,7 @@ class patient(object): # patient inherits from the object class
 		AIF=np.load(os.path.join(self.patientdirect,'Analysis','AIF.npy'))
 		self.AIF=np.squeeze(AIF)
 
-	def get_pixel_AIF(self, usesag=0, numvessels=2, slicegroup=[3,4,5,6,7,8,9,10,11]):
+	def get_pixel_AIF(self, usesag=0, numvessels=2, slicegroup=[3,4,5,6,7,8,9,10,11],blinepts=15):
 		# Display dynamics and choose slices from which AIF should be extracted
 		# First job - find AIF peak image by finding the index of the maximum pixel value within the first 50 frames for the central slice
 		dynims=np.copy(self.dynims)
@@ -362,7 +371,7 @@ class patient(object): # patient inherits from the object class
 		# Get resulting AIFs for these slices
 		AIFtemp=np.zeros((numvessels,dynims.shape[3],len(ChosenSlices)))
 		for i in range(0,len(ChosenSlices)):
-			AIFtemp[:,:,i]=getAIF.getAIF(dynims,ChosenSlices[i], self.dyninfo['TR']/1000, self.dyninfo['FlipAngle'],peakframe,numvessels=1)
+			AIFtemp[:,:,i]=getAIF.getAIF(dynims,ChosenSlices[i], self.dyninfo['TR']/1000, self.dyninfo['FlipAngle'],peakframe,numvessels,blinepts)
 
 		# Choose from plot which one to use
 		h3=plt.figure()
@@ -384,7 +393,7 @@ class patient(object): # patient inherits from the object class
 		
 	# Initial processing
 	#####################################################
-	def make_mask(self, use_dyn=0, tightmask=0):
+	def make_mask(self, use_dyn=0, tightmask=0, use_roipoly=1, save=1):
 		#Method to make a binary mask covering the area of interest - use T2w images
 		
 		if use_dyn==1:
@@ -405,38 +414,45 @@ class patient(object): # patient inherits from the object class
 		numslices=markupims.shape[2]
 		mask=np.zeros((markupims.shape),dtype='uint16')
 
-		for jj in range(numslices):
-			h3=plt.figure()
-			plt.imshow(markupims[:,:,jj],cmap='gray')
-			useslice=input('Use this slice? 1=yes, 0=no')
-			if int(useslice)==0:
-				plt.close(h3)
-			elif int(useslice)==1:
-				roi=roipoly.roipoly()
-				input('press enter to continue')
-				mask[:,:,jj]=roi.getMask(markupims[:,:,jj])
-			else:
-				print('Aborting')
-				return
+		if use_roipoly==1: #Method using roipoly for a detailed mask drawing
+			for jj in range(numslices):
+				h3=plt.figure()
+				plt.imshow(markupims[:,:,jj],cmap='gray')
+				useslice=input('Use this slice? 1=yes, 0=no')
+				if int(useslice)==0:
+					plt.close(h3)
+				elif int(useslice)==1:
+					roi=roipoly.roipoly()
+					input('press enter to continue')
+					mask[:,:,jj]=roi.getMask(markupims[:,:,jj])
+				else:
+					print('Aborting')
+					return
 
-		if use_dyn==1:
-			if tightmask==0:
-				print("Saving dynmask")
-				self.dynmask=mask
-				np.save(os.path.join(self.patientdirect,'Analysis','dynmask.npy'),mask)
-			if tightmask==1:
-				print("Saving dyntightmask")
-				self.dyntightmask=mask
-				np.save(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'),mask)
-		elif use_dyn==0:
-			if tightmask==0:
-				print("Saving mask - don't forget to convert to dynamic size")
-				self.mask=mask			
-				np.save(os.path.join(self.patientdirect,'Analysis','mask.npy'),mask)
-			if tightmask==1:
-				print("Saving tightmask - don't forget to convert to dynamic size")
-				self.tightmask=mask
-				np.save(os.path.join(self.patientdirect,'Analysis','tightmask.npy'),mask)
+		if use_roipoly==0: # Method using an ellipse to exclude unwanted bits of the image from calculation
+			import roi_ellipse
+			mask=roi_ellipse.draw_ellipse(markupims)
+
+
+
+		if use_dyn==1 and tightmask==0:
+			self.dynmask=mask
+			maskname='dynmask.npy'
+		if use_dyn==1 and tightmask==1:
+			self.dyntightmask=mask
+			maskname='dyntightmask'
+
+		if use_dyn==0 and tightmask==0:
+			self.mask=mask
+			maskname='mask.npy'
+		if use_dyn==0 and tightmask==1:
+			self.tightmask=mask
+			maskname='tightmask.npy'
+
+
+		if save==1:
+			print('Saving '+maskname)
+			np.save(os.path.join(self.patientdirect,'Analysis',maskname),mask)
 
 
 	def convert_mask(self,tightmask=0):
@@ -497,150 +513,115 @@ class patient(object): # patient inherits from the object class
 			self.dyntightmask=np.load(os.path.join(self.patientdirect,'Analysis','dyntightmask.npy'))
 
 
-	def read_analyze_roi(self):
+	def read_analyze_roi(self, debug=0, UMCU=0):
 		
 		if not hasattr(self,'dyninfo'):
-			print('Read in the dyanmic data to check for ROI placement')
+			print('Read in the dynamic data to check for ROI placement')
 			return
 		# Method to read in analyze img hdr rois from Sjogren's data
 		# Find the associated text file for checking later
-		txtfile=glob.glob(os.path.join(self.patientdirect,'Analysis','ROI','*.txt'))[0]
+		#txtfile=glob.glob(os.path.join(self.patientdirect,'Analysis','ROI','*.txt'))[0]
 		
+		import ResampleImage
 		import nibabel
-		# Look in pt_directory/analysis/roi img files
-		imgfiles=glob.glob(os.path.join(self.patientdirect,'Analysis','ROI','*.img'))
+		# Look in pt_directory/analysis/roi to find MPRAGE and SEG files from GT
+		imgfiles=glob.glob(os.path.join(self.patientdirect,'Analysis','ROI','*.nii'))
 		print('reading...')
-		print(imgfiles)
+		print('roi file: '+imgfiles[1])
+		print('MPRAGE file: '+imgfiles[0])
 		# Read the files
 		roi=nibabel.load(imgfiles[1])
 		MPRAGE=nibabel.load(imgfiles[0])
 		# extract pixel values
 		roidata=np.squeeze(roi.get_data())
 		MPRAGEdata=np.squeeze(MPRAGE.get_data())
-		#print(MPRAGEdata.dtype)
+		if debug==1:
+			print('MPRAGE from nifti shape: ')
+			print(MPRAGEdata.shape)
 
-		# Read the IPP, pixel spacing and matrix from the dicom header for the MPRAGE and dynamic data as well
-		MPRAGEfiles=glob.glob(os.path.join(self.dicomdirect,'*_MPRAGEp*/*.dcm'))
-		Dynfiles=glob.glob(os.path.join(self.dicomdirect,'*minutes*/*.dcm'))
+		if glob.glob(os.path.join(self.dicomdirect,'*_MPRAGEp*')):
+			MPRAGEfolder=glob.glob(os.path.join(self.dicomdirect,'*_MPRAGEp*'))[0]
+			Dynfolder=glob.glob(os.path.join(self.dicomdirect,'*minutes*'))[0]
+		else:
+			MPRAGEfolder=glob.glob(os.path.join(self.dicomdirect,'*3D T1'))[0]
+			Dynfolder=glob.glob(os.path.join(self.dicomdirect,'*dynamic'))[0]
 
-		#ImagePositionPatient
-		MPRAGEIPP0=np.array(dicom.read_file(MPRAGEfiles[0]).ImagePositionPatient)
-		MPRAGEIPPN=np.array(dicom.read_file(MPRAGEfiles[-1]).ImagePositionPatient)
-		DynIPP0=np.array(dicom.read_file(Dynfiles[0]).ImagePositionPatient)
-		DynIPPN=np.array(dicom.read_file(Dynfiles[-1]).ImagePositionPatient)
 
-		#ImageOrientationPatient
-		MPRAGEIOP=np.array(dicom.read_file(MPRAGEfiles[0]).ImageOrientationPatient)
-		DynIOP=np.array(dicom.read_file(Dynfiles[0]).ImageOrientationPatient)
-		
-		#PixelSpacing
-		MPRAGEPixelSpacing=dicom.read_file(MPRAGEfiles[0]).PixelSpacing
-		DynPixelSpacing=dicom.read_file(Dynfiles[0]).PixelSpacing
-
-		#Num rows, cols, slices
-		MPRAGErows=dicom.read_file(MPRAGEfiles[0]).Rows
-		MPRAGEcols=dicom.read_file(MPRAGEfiles[0]).Columns
-		MPRAGEslices=len(MPRAGEfiles)
-		Dynrows=dicom.read_file(Dynfiles[0]).Rows
-		Dyncols=dicom.read_file(Dynfiles[0]).Columns
-		Dynslices=int(self.dyninfo['numslices'])
-
-		# Affine for MPRAGE and Dynamic
-		# MPRAGE is sagittal, remember that dicom is LPS
-
-		MPRAGEA=np.zeros((4,4))
-		MPRAGEA[0:3,0]=MPRAGEIOP[3:6]*MPRAGEPixelSpacing[0]
-		MPRAGEA[0:3,1]=MPRAGEIOP[0:3]*MPRAGEPixelSpacing[1]
-		MPRAGEA[0:3,3]=MPRAGEIPP0
-		MPRAGEA[3,3]=1
-		MPRAGEA[0:3,2]=(MPRAGEIPP0-MPRAGEIPPN)/(1-MPRAGEslices)
-
-		#Dynamic is axial
-
-		DynA=np.zeros((4,4))
-		DynA[0:3,0]=DynIOP[3:6]*DynPixelSpacing[0]
-		DynA[0:3,1]=DynIOP[0:3]*DynPixelSpacing[1]
-		DynA[0:3,3]=DynIPP0
-		DynA[3,3]=1
-		DynA[0:3,2]=(DynIPP0-DynIPPN)/(1-Dynslices)		
-
-		# Now need to make grids from the affines
-		MPRAGEr=np.zeros((MPRAGErows,MPRAGEcols,MPRAGEslices))
-		MPRAGEc=np.zeros((MPRAGErows,MPRAGEcols,MPRAGEslices))
-		MPRAGEs=np.zeros((MPRAGErows,MPRAGEcols,MPRAGEslices))
-		#print(MPRAGEr.shape)
-
-		for r in range(MPRAGErows):
-			for c in range(MPRAGEcols):
-				for s in range(MPRAGEslices):
-					coords=MPRAGEA.dot([r,c,s,1])
-					MPRAGEr[r,c,s]=coords[0]
-					MPRAGEc[r,c,s]=coords[1]
-					MPRAGEs[r,c,s]=coords[2]
-
-		print(MPRAGEr.dtype)
-
-		Dynr=np.zeros((Dynrows,Dyncols,Dynslices))
-		Dync=np.zeros((Dynrows,Dyncols,Dynslices))
-		Dyns=np.zeros((Dynrows,Dyncols,Dynslices))
-		#print(Dynr.shape)
-
-		for r in range(Dynrows):
-			for c in range(Dyncols):
-				for s in range(Dynslices):
-					coords=DynA.dot([r,c,s,1])
-					Dynr[r,c,s]=coords[0]
-					Dync[r,c,s]=coords[1]
-					Dyns[r,c,s]=coords[2]
-
-		print(Dynr.dtype)	
-
-		#Reorient data from nifti format to match dicom
+		#Reorient data from nifti format IMANOVA:(sag rotated anticlockwise 90 deg, flip lr, slice dirn flipped round) to match dicom (sag)
+		# UMCU: (ax rotated 90deg, flip lr) to match dicom (ax)
 		print('Reorienting nifti data')
 		print(MPRAGEdata.dtype)
-		MPRAGEdatanew=np.moveaxis(MPRAGEdata,0,2)
-		MPRAGEdatanew=np.fliplr(np.rot90(MPRAGEdatanew)).astype('<f4')
+		
+		#MPRAGEdatanew=np.moveaxis(MPRAGEdata,0,2)
+		MPRAGEdatanew=np.fliplr(np.rot90(MPRAGEdata,-1)).astype('<f4')
+		if UMCU==0:
+			MPRAGEdatanew=np.flip(MPRAGEdatanew,2)
 
-		#print(MPRAGEdatanew.dtype)
-		#print(MPRAGEdatanew.shape)
-
-		roidatanew=np.moveaxis(roidata,0,2)
-		roidatanew=np.fliplr(np.rot90(roidatanew))
+		if debug==1:
+			print('MPRAGE nifti datatype:')
+			print(MPRAGEdatanew.dtype)
+			print('MPRAGE nifti shape:')
+			print(MPRAGEdatanew.shape)
+			plt.figure()
+			plt.gca().set_title('MPRAGE from nifti, reoriented')
+			plt.imshow(MPRAGEdatanew[:,:,100])	
+		
+		#Reorient roi data from nifti
+		#roidatanew=np.moveaxis(roidata,0,2)
+		roidatanew=np.fliplr(np.rot90(roidata,-1))
+		if UMCU==0:
+			roidatanew=np.flip(roidatanew,2)
 
 		#print(roidatanew.dtype)
 
 		print('Interpolating MPRAGE...')
-		# Interpolate MPRAGE image data with dynamic grid
-		MPRAGEasDyn=scipy.interpolate.griddata((MPRAGEr.flatten(),MPRAGEc.flatten(),MPRAGEs.flatten()),MPRAGEdatanew.flatten(),(Dynr,Dync,Dyns),method='nearest')
+		# Interpolate MPRAGE DICOM image data with dynamic grid
+		MPRAGEasDyn=ResampleImage.resample_dicom(Dynfolder,MPRAGEfolder,MPRAGEdatanew,self.dynims.shape[2],MPRAGEdatanew.shape[2])
+		#MPRAGEasDyn=np.load(os.path.join(self.patientdirect,'Analysis','MPRAGEasDyn.npy'))
 
 		print('Interpolating ROI...')
 		# Interpolate MPRAGE roi data with dynamic grid
-		ROIasDyn=scipy.interpolate.griddata((MPRAGEr.flatten(),MPRAGEc.flatten(),MPRAGEs.flatten()),roidatanew.flatten(),(Dynr,Dync,Dyns),method='nearest')
+		ROIasDyn=ResampleImage.resample_dicom(Dynfolder,MPRAGEfolder,roidatanew,self.dynims.shape[2],MPRAGEdatanew.shape[2])
+		#ROIasDyn=np.load(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'))
 
 		# Reorient the data to appear as we would expect (L on right of image)
 		#MPRAGEasDyn=np.rot90(MPRAGEasDyn,1)
 		#ROIasDyn=np.rot90(ROIasDyn,1)
 
 		#Quick visual check on one slice, also print text file
-		import overlay
-		overlay.overlay(MPRAGEasDyn[:,:,8],ROIasDyn[:,:,8],0.5,6)
-		overlay.overlay(self.dynims[:,:,8,10],ROIasDyn[:,:,8],0.5,6)
-		plt.figure();plt.imshow(ROIasDyn[:,:,8])
-		with open(txtfile) as f:
-			for line in f:
-				print(line)
+		# import overlay
+		if debug==1:
+			plt.figure()
+			if UMCU==0:
+				overlay.overlay(MPRAGEdatanew[183,:,:],roidatanew[183,:,:],0.2,6)
+			else:
+				overlay.overlay(MPRAGEdatanew[:,:,50],roidatanew[:,:,50],0.2,6)
+			plt.gca().set_title('MPRAGE and rois from nifti')
+			plt.figure()
+			overlay.overlay(MPRAGEasDyn[:,:,6],ROIasDyn[:,:,6],0.2,6)
+			plt.gca().set_title('MPRAGE and rois from nifti, both resampled')
+			plt.figure()
+			overlay.overlay(self.dynims[:,:,6,10],ROIasDyn[:,:,6],0.2,6)
+			plt.gca().set_title('Dynamic from dicom, roi resampled from nifti')
 
-		self.ROIinfo=np.genfromtxt(txtfile,delimiter="'",usecols=1,dtype=str,autostrip='True')
+		# with open(txtfile) as f:
+		# 	for line in f:
+		# 		print(line)
+
+		#ROIinfo=np.genfromtxt(txtfile,delimiter="'",usecols=1,dtype=str,autostrip='True')
+		#ROIinfo=np.append(ROIinfo[1:],'parotid')
+		#ROIinfo=np.append(ROIinfo,'submandibular')
+		#self.ROIinfo=ROIinfo
 
 		self.MPRAGEasDyn=MPRAGEasDyn
 		self.ROIasDyn=ROIasDyn
 
 		np.save(os.path.join(self.patientdirect,'Analysis','MPRAGEasDyn.npy'),MPRAGEasDyn)
 		np.save(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'),ROIasDyn)
+		#np.save(os.path.join(self.patientdirect,'Analysis','ROIinfo.npy'),ROIinfo)
 
 
-
-	def make_T1map(self,seqtype='IR',measnum=0): # method to do T1 fitting, seqtype is either IR, SR, IRTrueFISP or VFA
+	def make_T1map(self,seqtype='IR',measnum=0, save=1): # method to do T1 fitting, seqtype is either IR, SR, IRTrueFISP or VFA
 		#if not hasattr(self, 'T1data'):
 		#	print('Read the T1 data first - patient.read_T1data()')
 		#	return
@@ -681,7 +662,7 @@ class patient(object): # patient inherits from the object class
 							if seqtype=='IRTrueFISP':
 								fit=IRTrueFISP.fittingfun(TIs,TR,curve)
 							if seqtype=='VFA':
-								fit=FLASH.fittingfun(flip,TR,curve)
+								fit=FLASH.fittingfun(flip,TR,curve/np.max(curve),startguess=[10,500])
 								# Swap M0 and T1 around to match other fitting algorithms
 								tmp=fit.x[0]
 								fit.x[0]=fit.x[1]
@@ -691,12 +672,18 @@ class patient(object): # patient inherits from the object class
 							map[i,j,sl]=fit.x[0]
 							
 		# Save the map
+
 		if measnum==0:
-			np.save(os.path.join(self.patientdirect,'Analysis','T1map.npy'),map)
 			self.T1map=map
+			mapname='T1map.npy'
 		if measnum==1:
-			np.save(os.path.join(self.patientdirect,'Analysis','T1map2.npy'),map)
 			self.T1map2=map
+			mapname='T1map2.npy'
+
+		if save==1:
+			np.save(os.path.join(self.patientdirect,'Analysis',mapname),map)
+
+
 
 	def load_T1map(self,measnum=0):
 		#method to load previously made T1 map
@@ -770,6 +757,10 @@ class patient(object): # patient inherits from the object class
 		if not hasattr(self,'dyntightmask'):
 			print("make a tight mask over the tumour first, and convert to dynamic size")
 			return
+		tres=self.dyninfo['tres'][0]
+		if tres==0:
+			print('Time resolution is currently zero - correct this before continuing')
+			return
 
 
 		#Find the sd in the baseline
@@ -792,7 +783,7 @@ class patient(object): # patient inherits from the object class
 
 		#Find the maximum enhancement then mask to tightmask
 		maxenhancement=np.ndarray.max(self.dynims,3)
-		maxenhancement=maxenhancement*self.dyntightmask
+		maxenhancement=maxenhancement*(self.dyntightmask) #maximum enhancement in SI
 		#plt.figure()
 		#plt.imshow(maxenhancement[:,:,10],vmax=200,interpolation='nearest')
 		#plt.colorbar()
@@ -803,12 +794,14 @@ class patient(object): # patient inherits from the object class
 		EnhancingFraction=numenhancingpixels/numtightmaskpixels
 		print('Enhancing Fraction = '+str(EnhancingFraction))
 
-		# Calculate the max enhancement as a % of baseline for comparison with other datasets
-		maxenhancement=maxenhancement/(baselinemean*self.dyntightmask)
+		# Calculate the max enhancement as a fraction of baseline for comparison with other datasets
+		maxenhancement=(maxenhancement/(baselinemean*self.dyntightmask))-1 #max enhancement over baseline (0 at start)
 
+		# Calculate the enhancement as a fraction of the baseline (so, 0 at start) during the dynamic series
+		percentenh=(self.dynims/np.repeat(baselinemean[:,:,:,np.newaxis],self.dynims.shape[3],3))-1
 		#Also calculate the initial rate of enhancement using sav_golay filter
 		IRE=np.zeros(maxenhancement.shape)
-		IRE=np.amax(scipy.signal.savgol_filter(self.dynims,window_length=3, polyorder=1, deriv=1, axis=3),axis=3)
+		IRE=np.amax(scipy.signal.savgol_filter(percentenh,window_length=3, polyorder=1, deriv=1, axis=3, delta=tres),axis=3)
 
 		if save==1:
 			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'),maxenhancement)
@@ -843,6 +836,7 @@ class patient(object): # patient inherits from the object class
 			print('Time resolution is currently zero - correct this before continuing')
 			return
 
+		
 		#Loop through to convert to concentration
 		for sl in range(self.dyntightmask.shape[2]): #for each slice
 			#print(sl)
@@ -854,7 +848,7 @@ class patient(object): # patient inherits from the object class
 								if np.sum(np.isnan(uptakeConc))==0 and np.sum(uptakeConc)>0:
 									Conccurves[i,j,sl,:]=uptakeConc
 
-
+		
 		#Find the sd in the baseline
 		baselinestd=np.std(Conccurves[:,:,:,1:baselinepts],3)
 
@@ -882,11 +876,12 @@ class patient(object): # patient inherits from the object class
 
 		#Also calculate the initial rate of enhancement using sav_golay filter
 		IRE=np.zeros(maxenhancement.shape)
-		IRE=np.nanmax(scipy.signal.savgol_filter(Conccurves,window_length=3, polyorder=1, deriv=1, axis=3),axis=3)
+		IRE=np.nanmax(scipy.signal.savgol_filter(Conccurves,window_length=3, polyorder=1, deriv=1, axis=3,delta=tres),axis=3)
 		
 		self.EnhancingFractionConc=EnhancingFraction
 		self.MaxEnhancementConc=maxenhancement
 		self.InitialRateEnhancementConc=IRE
+		self.Conccurves=Conccurves
 
 		if save==1:
 			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'),maxenhancement)
@@ -901,19 +896,23 @@ class patient(object): # patient inherits from the object class
 		if mask.shape != image.shape:
 			print('Image and mask need to be the same shape and size')
 			return
+		values_in_mask=image[mask==1]
 		# Num pixels
 		numpix=np.sum(mask)
-		numnans=np.sum(np.isnan(image[mask==1]))
+		numnans=np.sum(np.isnan(values_in_mask))
+		numinf=np.sum(np.isinf(values_in_mask))
+		if numinf>0:
+			values_in_mask=np.ma.masked_invalid(values_in_mask)
 		# Mean
-		regionmean=np.nanmean(image[mask==1])
+		regionmean=np.nanmean(values_in_mask)
 		# SD
-		regionsd=np.nanstd(image[mask==1])
+		regionsd=np.nanstd(values_in_mask)
 		# Median
-		regionmedian=np.nanmedian(image[mask==1])
+		regionmedian=np.nanmedian(values_in_mask)
 		# LQ
-		regionlq=np.nanpercentile(image[mask==1],25)
+		regionlq=np.nanpercentile(values_in_mask,25)
 		# UQ
-		regionuq=np.nanpercentile(image[mask==1],75)
+		regionuq=np.nanpercentile(values_in_mask,75)
 
 		#print([numpix,numnans,regionmean,regionsd,regionmedian,regionlq,regionuq])
 		self.get_region_stats_result=[numpix,numnans,regionmean,regionsd,regionmedian,regionlq,regionuq]
@@ -933,101 +932,6 @@ class patient(object): # patient inherits from the object class
 			plt.plot(x,curve)
 		self.meancurve=curve
 		np.save(os.path.join(self.patientdirect,'Analysis','meancurve.npy'),curve)
-
-	def apply_analyze_rois(self):
-		#Method to apply the read in rois to the following maps:
-		#T1
-		#MaxEnh
-		#MaxEnhConc
-		#Initial rate of enhancement
-		#Initial rate of enhancement Conc
-		#Ktrans
-		
-		#Check if maps are read in, if not then read in if present
-
-		if (not hasattr(self,'T1map')): # If the map isn't present....
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','T1map.npy'))): #...and the file exists...
-				print('loading T1 map')
-				self.load_T1map() #... load it
-			else: # Or report that it's not found
-				print('T1 map not found')
-
-		if (not hasattr(self,'MaxEnhancement')):
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))):
-				print('Loading MaxEnh')
-				self.MaxEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))
-			else:
-				print('Maximum Enhancement map not found')
-
-		if (not hasattr(self,'MaxEnhancementConc')):
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))):
-				print('Loading MaxEnhConc')
-				self.MaxEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))
-			else:
-				print('Maximum Enhancement Conc map not found')
-
-		if (not hasattr(self,'InitialRateEnhancement')):
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))):
-				print('Loading InitialRate Enhancement')
-				self.InitialRateEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))
-			else:
-				print('Initial Rate Enhancement map not found')
-
-		if (not hasattr(self,'InitialRateEnhancementConc')):
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))):
-				print('Loading Initial Rate enhancement Conc')
-				self.InitialRateEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))
-			else:
-				print('Initial Rate Enhancement Conc map not found')
-
-		if (not hasattr(self,'ExtKetyfitSI')):
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))):
-				print('Loading Ext KetyfitSImaps')
-				self.ExtKetyfitSI=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))
-			else:
-				print('Ext Kety fit SI maps not found')
-
-		if (not hasattr(self,'ExtKetyfitConc')):
-			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))):
-				print('Loading ExtKetyfitConc')
-				self.ExtKetyfitConc=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))
-			else:
-				print('Ext Kety fit Conc maps not found')
-
-		#Find out the numbers denoting ROIs present
-		ROIlabels=list(set(self.ROIasDyn.flatten()))
-		print(ROIlabels)
-		#Work through masks and maps, printing out results
-		for X in ROIlabels[1:]:
-			if hasattr(self, 'T1map'):
-				self.get_region_stats(self.T1map,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', T1map, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
-
-			if hasattr(self, 'MaxEnhancement'):
-				self.get_region_stats(self.MaxEnhancement,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', MaxEnhancement, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
-
-			if hasattr(self, 'MaxEnhancementConc'):
-				self.get_region_stats(self.MaxEnhancementConc,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', MaxEnhancementConc, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
-
-			if hasattr(self, 'InitialRateEnhancement'):
-				self.get_region_stats(self.InitialRateEnhancement,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', InitialRateEnhancement, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
-
-			if hasattr(self, 'InitialRateEnhancementConc'):
-				self.get_region_stats(self.InitialRateEnhancementConc,scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', InitialRateEnhancementConc, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
-
-			if hasattr(self, 'ExtKeyfitSI'):
-				self.get_region_stats(self.ExtKetyfitSI[:,:,:,0],scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', ExtKeyfitSI, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))			
-
-			if hasattr(self, 'ExtKetyfitConc'):
-				self.get_region_stats(self.ExtKetyfitConc[:,:,:,0],scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==X,structure=np.ones((3,3,1))))
-				print(self.patientdirect.split('/')[-1]+', ExtKetyfitConc, '+str(self.ROIinfo[X])+str(self.get_region_stats_result))
-
-
 
 
 	# Fitting
@@ -1054,6 +958,8 @@ class patient(object): # patient inherits from the object class
 
 		self.ExtKetyfitConc=np.zeros((self.dynmask.shape+(4,)))
 		self.ExtKetyfitSI=np.zeros((self.dynmask.shape+(4,)))
+		self.ExtKetyfitConcEnhFlag=np.zeros((self.dynmask.shape))
+		self.ExtKetyfitSIEnhFlag=np.zeros((self.dynmask.shape))
 
 		TR=self.dyninfo['TR']/1000
 		flip=self.dyninfo['FlipAngle']
@@ -1070,10 +976,12 @@ class patient(object): # patient inherits from the object class
 								print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
 								uptake=np.squeeze(self.dynims[i,j,sl,:])
 								T1base=self.T1map[i,j,sl]
-								fit=ExtKety.ExtKetyfittingSI(self.t, self.AIF/0.6, uptake, 15, TR, flip, T1base/1000)
+								fit, chi2=ExtKety.ExtKetyfittingSI(self.t, self.AIF/(1-self.hct), uptake, 15, TR, flip, T1base/1000)
+								self.ExtKetyfitSIEnhFlag[i,j,sl]=self.enhancement_flag(uptake, 3, chi2)
 								self.ExtKetyfitSI[i,j,sl,:]=fit
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'),self.ExtKetyfitSI)
+				np.save(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSIEnhFlag.npy'),self.ExtKetyfitSIEnhFlag)
 
 
 		else:
@@ -1084,11 +992,13 @@ class patient(object): # patient inherits from the object class
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
-									ExtKetyfitConc=ExtKety.ExtKetyfittingConc(self.t, self.AIF/0.6, uptakeConc)
+									ExtKetyfitConc, chi2=ExtKety.ExtKetyfittingConc(self.t, self.AIF/(1-self.hct), uptakeConc)
+									self.ExtKetyfitConcEnhFlag[i,j,sl]=self.enhancement_flag(uptakeConc, 3, chi2)
 									self.ExtKetyfitConc[i,j,sl,:]=ExtKetyfitConc
 
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'),self.ExtKetyfitConc)
+				np.save(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcEnhFlag.npy'),self.ExtKetyfitConcEnhFlag)
 
 
 	def fit_2CXM(self,SIflag,save,use2ndT1=0):
@@ -1144,7 +1054,7 @@ class patient(object): # patient inherits from the object class
 							if use2ndT1==1:
 								uptake=k[i,j,sl]*(uptake-SI0[i,j,sl])+SI0[i,j,sl]
 							T1base=self.T1map[i,j,sl]
-							fit=TwoCXM.TwoCXMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
+							fit=TwoCXM.TwoCXMfittingSI(self.t, self.AIF/(1-self.hct), uptake, None, 15, TR, flip, T1base/1000,[0.03,0.3])
 							self.TwoCXMfitSI[i,j,sl,:]=fit
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitSImaps.npy'),self.TwoCXMfitSI)
@@ -1157,7 +1067,7 @@ class patient(object): # patient inherits from the object class
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
-									TwoCXMfitConc=TwoCXM.TwoCXMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
+									TwoCXMfitConc=TwoCXM.TwoCXMfittingConc(self.t, self.AIF/(1-self.hct), uptakeConc, None)
 									self.TwoCXMfitConc[i,j,sl,:]=TwoCXMfitConc
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCXMfitConcmaps.npy'),self.TwoCXMfitConc)
@@ -1216,7 +1126,7 @@ class patient(object): # patient inherits from the object class
 							T1base=self.T1map[i,j,sl]
 							if use2ndT1==1:
 								T1base=self.T1map2[i,j,sl]
-							fit=TwoCUM.TwoCUMfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000,[0.0003,0.03],use2ndT1)
+							fit=TwoCUM.TwoCUMfittingSI(self.t, self.AIF/(1-self.hct), uptake, None, 15, TR, flip, T1base/1000,[0.0003,0.03],use2ndT1)
 							self.TwoCUMfitSI[i,j,sl,:]=fit
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitSImapsBothT1.npy'),self.TwoCUMfitSI)
@@ -1229,7 +1139,7 @@ class patient(object): # patient inherits from the object class
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
-									TwoCUMfitConc=TwoCUM.TwoCUMfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
+									TwoCUMfitConc=TwoCUM.TwoCUMfittingConc(self.t, self.AIF/(1-self.hct), uptakeConc, None)
 									self.TwoCUMfitConc[i,j,sl,:]=TwoCUMfitConc
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','TwoCUMfitConcmaps.npy'),self.TwoCUMfitConc)
@@ -1258,7 +1168,7 @@ class patient(object): # patient inherits from the object class
 								print('Pixel '+str(count)+' of '+str(total)+' in slice '+str(sl))
 								uptake=np.squeeze(self.dynims[i,j,sl,:])
 								T1base=self.T1map[i,j,sl]
-								fit=AATH.AATHfittingSI(self.t, self.AIF/0.6, uptake, None, 15, TR, flip, T1base/1000)
+								fit=AATH.AATHfittingSI(self.t, self.AIF/(1-self.hct), uptake, None, 15, TR, flip, T1base/1000)
 								self.AATHfitSI[i,j,sl,:]=fit
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','AATHfitSImaps.npy'),self.AATHfitSI)
@@ -1272,11 +1182,33 @@ class patient(object): # patient inherits from the object class
 								uptakeConc=FLASH.SI2Conc(self.dynims[i,j,sl,:],TR,flip,self.T1map[i,j,sl]/1000,15,None)
 								print(i,j,sl)
 								if np.isnan(np.sum(uptakeConc))==0:
-									AATHfitConc=AATH.AATHfittingConc(self.t, self.AIF/0.6, uptakeConc, None)
+									AATHfitConc=AATH.AATHfittingConc(self.t, self.AIF/(1-self.hct), uptakeConc, None)
 									self.AATHfitConc[i,j,sl,:]=AATHfitConc
 
 			if save==1:
 				np.save(os.path.join(self.patientdirect,'Analysis','AATHfitConcmaps.npy'),self.AATHfitConc)
+
+	def enhancement_flag(self, curve, k, chi2_model):
+		# Helper method to fit a constant to a curve and output whether this is a better fit, according to the Akaike criterion
+		#Fit constant
+		fit_const=np.polyfit(self.t,curve,0,full=True)
+		chi2_const=fit_const[1][0]
+		#print(fit_const, chi2_const)
+		#print(fit_const[0][0])
+		
+		# Akaike = 2*k + n*ln(chi2)
+		Akaike_const=(2) + len(curve)*np.log(chi2_const) #k=1 for a constant
+		#print(Akaike_const)
+		Akaike_model=(2*k) + len(curve)*np.log(chi2_model**2)
+		#print(Akaike_model)
+		# Return 1 if model is a better fit than constant, i.e if enhancing, 0 if constant is a better fit (i.e. not enhancing)
+		flag=1
+		#print(Akaike_const<Akaike_model)
+		#print(fit_const[0][0]<0)
+		if (Akaike_const<Akaike_model) or (fit_const[0][0]<0):
+			flag=0
+
+		return flag 
 
 
 	def load_AATHConcparammaps(self):
@@ -1627,6 +1559,196 @@ class patient(object): # patient inherits from the object class
 			shutil.rmtree(os.path.join(dicomdirect,dirname))
 		shutil.move(dirname,'..')
 		
+
+
+	def apply_analyze_rois(self, UMCU=0):	
+		import Sjogrens_export
+		#Method to apply the read in rois to the following maps:
+		#T1
+		#MaxEnh
+		#MaxEnhConc
+		#Initial rate of enhancement
+		#Initial rate of enhancement Conc
+		#Ktrans
+		
+		#Check if maps are read in, if not then read in if present
+
+		if (not hasattr(self,'T1map')): # If the map isn't present....
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','T1map.npy'))): #...and the file exists...
+				print('loading T1 map')
+				self.load_T1map() #... load it
+			# else: # Or report that it's not found
+			# 	print('T1 map not found')
+
+		if (not hasattr(self,'MaxEnhancement')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))):
+				print('Loading MaxEnh')
+				self.MaxEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))
+			# else:
+			# 	print('Maximum Enhancement map not found')
+
+		if (not hasattr(self,'MaxEnhancementConc')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))):
+				print('Loading MaxEnhConc')
+				self.MaxEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))
+			# else:
+			# 	print('Maximum Enhancement Conc map not found')
+
+		if (not hasattr(self,'InitialRateEnhancement')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))):
+				print('Loading InitialRate Enhancement')
+				self.InitialRateEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))
+			# else:
+			# 	print('Initial Rate Enhancement map not found')
+
+		if (not hasattr(self,'InitialRateEnhancementConc')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))):
+				print('Loading Initial Rate enhancement Conc')
+				self.InitialRateEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))
+			# else:
+			# 	print('Initial Rate Enhancement Conc map not found')
+
+		if (not hasattr(self,'ExtKetyfitSI')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))):
+				print('Loading Ext KetyfitSImaps')
+				self.ExtKetyfitSI=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))
+			# else:
+			# 	print('Ext Kety fit SI maps not found')
+
+		if (not hasattr(self,'ExtKetyfitSIEnhFlag')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSIEnhFlag.npy'))):
+				print('Loading ExtKetyfitSIEnhFlag')
+				self.ExtKetyfitSIEnhFlag=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSIEnhFlag.npy'))
+			# else:
+			# 	print('Ext Kety fit SI maps not found')
+
+		if (not hasattr(self,'ExtKetyfitConc')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))):
+				print('Loading ExtKetyfitConc')
+				self.ExtKetyfitConc=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))
+			# else:
+			# 	print('Ext Kety fit Conc maps not found')
+
+		if (not hasattr(self,'ExtKetyfitConcEnhFlag')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcEnhFlag.npy'))):
+				print('Loading ExtKetyfitConcEnhFlag')
+				self.ExtKetyfitConcEnhFlag=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcEnhFlag.npy'))
+			# else:
+			# 	print('Ext Kety fit Conc maps not found')
+
+		if (not hasattr(self,'ROIasDyn')):
+			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'))):
+				print('Loading ROI file')
+				self.ROIasDyn=np.load(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'))
+			# else:
+			# 	print('Ext Kety fit Conc maps not found')
+
+		self.ROIinfo=np.array(['rt_parotid', 'lt_parotid', 'rt_submandibular', 'lt_submandibular', 'parotid', 'submandibular'], dtype='<U16')
+
+		SEQ=1 # SEQ needs to be incremented for each result written to file
+		
+		if UMCU==1:
+			subjectID=self.patientdirect[split('t')][-1] # Extract subject ID to write to file
+		else:
+			subjectID=self.patientdirect.split('_')[-2][-3:] # Extract subject ID to write to file
+
+		#Work through masks and maps, printing out results and also sending to a csv file formatted for the spreadsheet of doom
+		for X in range(6): # six possible masks - 1, 2, 3, 4, 1&2, 3&4
+			#Set mask according to which region we're going for
+			if X==0:
+				mask=scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==1,structure=np.ones((3,3,1)))
+				reducedmask=mask*self.ExtKetyfitConcEnhFlag
+			if X==1:
+				mask=scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==2,structure=np.ones((3,3,1)))
+				reducedmask=mask*self.ExtKetyfitConcEnhFlag
+			if X==2:
+				mask=scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==3,structure=np.ones((3,3,1)))
+				reducedmask=mask*self.ExtKetyfitConcEnhFlag
+			if X==3:
+				mask=scipy.ndimage.morphology.binary_erosion(self.ROIasDyn==4,structure=np.ones((3,3,1)))
+				reducedmask=mask*self.ExtKetyfitConcEnhFlag
+			if X==4:
+				mask=scipy.ndimage.morphology.binary_erosion((self.ROIasDyn==1)+(self.ROIasDyn==2),structure=np.ones((3,3,1)))
+				reducedmask=mask*self.ExtKetyfitConcEnhFlag
+			if X==5:
+				mask=scipy.ndimage.morphology.binary_erosion((self.ROIasDyn==3)+(self.ROIasDyn==4),structure=np.ones((3,3,1)))
+				reducedmask=mask*self.ExtKetyfitConcEnhFlag
+
+
+			if np.sum(mask)>0:
+				if hasattr(self, 'T1map'):
+					self.get_region_stats(self.T1map,mask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', T1map, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:],'T1map',str(self.ROIinfo[X]),SEQ)
+					SEQ=SEQ+5
+					self.get_region_stats(self.T1map,reducedmask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', T1map reduced, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+
+				if hasattr(self, 'MaxEnhancement'):
+					self.get_region_stats(self.MaxEnhancement,reducedmask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', MaxEnhancement, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*100,'MaxEnhancement',str(self.ROIinfo[X]),SEQ) #fractional multiplied by 100 to get %
+					SEQ=SEQ+5
+					self.get_region_stats(self.MaxEnhancement,mask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', MaxEnhancement (not reduced), '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+
+				# if hasattr(self, 'MaxEnhancementConc'):
+				# 	erroneousindices=self.MaxEnhancementConc==0
+				# 	self.MaxEnhancementConc[erroneousindices]=np.nan
+				# 	self.get_region_stats(self.MaxEnhancementConc,mask)
+				# 	print(self.patientdirect.split('/')[-1]+', MaxEnhancementConc, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))
+				# 	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:],'MaxEnhancementConc',str(self.ROIinfo[X]),SEQ)# s^-1 / 3.6MMOL^-1 s^-1 = MMOL
+				# 	SEQ=SEQ+5
+
+				if hasattr(self, 'InitialRateEnhancement'):
+					self.get_region_stats(self.InitialRateEnhancement,reducedmask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', InitialRateEnhancement, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*100,'InitialRateEnhancement',str(self.ROIinfo[X]),SEQ)#Fractional multiplied by 100 to get %/s
+					SEQ=SEQ+5
+					self.get_region_stats(self.InitialRateEnhancement, mask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', InitialRateEnhancement (not reduced), '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+
+				# if hasattr(self, 'InitialRateEnhancementConc'):
+				# 	erroneousindices=self.InitialRateEnhancementConc==0
+				# 	self.InitialRateEnhancementConc[erroneousindices]=np.nan
+				# 	self.get_region_stats(self.InitialRateEnhancementConc,mask)
+				# 	print(self.patientdirect.split('/')[-1]+', InitialRateEnhancementConc, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))
+				# 	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]/3.6,'InitialRateEnhancementConc',str(self.ROIinfo[X]),SEQ) # s^-2 / 3.6MMOL^-1 s^-1 = MMOL/s
+				# 	SEQ=SEQ+5
+
+				# if hasattr(self, 'ExtKeyfitSI'):
+				# 	self.get_region_stats(self.ExtKetyfitSI[:,:,:,0],mask)
+				# 	print(self.patientdirect.split('/')[-1]+', ExtKeyfitSI, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))			
+				#	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*60,'ExtKetyfitSI',str(self.ROIinfo[X]),SEQ)
+				#	SEQ=SEQ+5
+
+				if hasattr(self, 'ExtKetyfitConc'):
+					erroneousindices=self.ExtKetyfitConc[:,:,:,0]<0.0000101
+					self.ExtKetyfitConc[erroneousindices]=np.nan
+					self.get_region_stats(self.ExtKetyfitConc[:,:,:,0],reducedmask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', ExtKetyfitConc, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*60,'ExtKetyfitConc',str(self.ROIinfo[X]),SEQ) # s^-1 *60 = min^-1
+					SEQ=SEQ+5
+					self.get_region_stats(self.ExtKetyfitConc[:,:,:,0],mask)
+					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
+						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
+						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', ExtKetyfitConc (not reduced), '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
+
+	
 
 	def fit_TH(self):
 		pass

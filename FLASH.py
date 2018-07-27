@@ -11,10 +11,11 @@ def SIeqn(paramsin, flip, TR):
 	return SI
 
 
-def fittingfun(flips,TR,data):
-	startguess=[10,1000] #this is [M0,T1]
-	bnds=((0,3000),(0,1000000)) # Set upper and lower bounds for parameters
-	fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'eps':1e-10,'maxiter':1000})
+def fittingfun(flips,TR,data,startguess=[10000,500]):
+	#startguess is [M0,T1]
+	bnds=((0,1E10),(0,100000)) # Set upper and lower bounds for parameters
+	fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'maxiter':100000})
+	#fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='Nelder-Mead',options={'ftol':1e-9,'disp':False,'eps':1e-10,'maxiter':100000})
 	return fit
 
 
@@ -35,9 +36,9 @@ def SI2Conc(SIcurve,TR,flip,T1base,baselinepts,M0,use2ndT1=0):
 	# Convert T1 to R1
 	R1base=1/T1base
 
-	# If M0 isn't specified, calculate from baseline
+	# If M0 isn't specified, calculate from baseline (missing point 1)
 	if M0 is None:
-		base=np.mean(SIcurve[0:baselinepts])
+		base=np.mean(SIcurve[1:baselinepts])
 		M0=base*(1-np.cos(rflip)*np.exp(-1*TR*R1base))/(np.sin(rflip)*(1-np.exp(-1*TR*R1base)))
 	
 	# Now calculate the R1 curve

@@ -13,9 +13,9 @@ def overlay(background,map,maptransparency,maplimit):
 	map[infmask]=0
 	map[nanmask]=0
 
-	plt.figure()
+	#plt.figure()
 	plt.imshow(map,alpha=maptransparency)
-	plt.colorbar()
+	#plt.colorbar()
 
 	#print(np.amax(map))
 	#print(np.amin(map))
@@ -38,6 +38,9 @@ def overlay(background,map,maptransparency,maplimit):
 	#Make a new figure with greyscale background
 	# plt.figure()
 	plt.imshow(background,cmap=cm.gray,vmin=0,vmax=np.amax(background)/2,interpolation='nearest')
+	plt.imshow(background,cmap=cm.gray,interpolation='nearest')
+	plt.axis('off')
+	#plt.imshow(background,cmap=cm.gray,clim=2,interpolation='nearest')
 
 	#Overlay the map with transparency
 	plt.imshow(newmap, cmap=my_cmap, interpolation='nearest', clim=[0.001,255],alpha=maptransparency)
