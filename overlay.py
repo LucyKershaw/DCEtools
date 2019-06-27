@@ -13,7 +13,7 @@ def overlay(background,map,maptransparency,maplimit):
 	map[infmask]=0
 	map[nanmask]=0
 
-	#plt.figure()
+	plt.figure()
 	plt.imshow(map,alpha=maptransparency)
 	#plt.colorbar()
 

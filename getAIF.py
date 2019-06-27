@@ -74,6 +74,7 @@ def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2, blinepts=15):
 		for p in range(0,len(AIFij)):
 			chosenSIcurves[p,:]=np.squeeze(dynimages[vessely+AIFij[p][0]-4,vesselx+AIFij[p][1]-4,slice,:])
 			chosenConccurves[p,:]=FLASH.SI2Conc(chosenSIcurves[p,:],TR,flip,1.68,blinepts,None)
+			print(str(slice)+', '+str(vessely+AIFij[p][0]-4)+', '+str(vesselx+AIFij[p][1]-4))
 		
 		#Make the mean of the chosen curves and return
 		AIF[v,:]=np.mean(chosenConccurves,0)
@@ -82,7 +83,7 @@ def getAIF(dynimages, slice, TR, flip, peakframe, numvessels=2, blinepts=15):
 
 	return AIF
 
-def plot_peak_baseline(dynimages, peak, slices):
+def plot_peak_baseline(dynimages, peak, slices,label):
 	import numpy as np
 	import roipoly
 	import matplotlib.pyplot as plt
@@ -90,28 +91,39 @@ def plot_peak_baseline(dynimages, peak, slices):
 	# A function to plot out the baseline and peak signal intensities over slices
 	# Extract mean baseline volume and peak volume
 
-	baseline=np.mean(dynimages[:,:,:,1:10],3)
-	peakvol=dynimages[:,:,:,peak]
-	maxbase=np.zeros(len(slices))
-	maxpeak=np.zeros(len(slices))
+	peakvol=abs(dynimages[:,:,:,peak].astype('i')-dynimages[:,:,:,5].astype('i'))
+	meanbase=np.zeros(len(slices))
+	sdbase=np.zeros(len(slices))
+	vesselpeak=np.zeros(len(slices))
+	meansig=np.mean(dynimages[:,:,15,5],1)
+	sdsig=np.std(dynimages[:,:,15,5],1)
 
 	for i in range(len(slices)):
-		h=plt.figure()
+		h=plt.figure(figsize=(8,8))
 		im=peakvol[slices[i],:,:,]
-		base=baseline[slices[i],:,:]
+		#Plot the peak image and mark the vessel
 		plt.imshow(im,cmap='gray',interpolation='nearest') # Show the image
-		roi=roipoly.roipoly.roipoly() # Mark the vessel
-		input('press enter to continue')
-		mask=roi.getMask(im) # Make the mask
+		vesselpos=plt.ginput(1,timeout=100, show_clicks=True,mouse_add=1, mouse_pop=3, mouse_stop=2)
+		vesselx=np.int(np.round(vesselpos[0][0]))
+		vessely=np.int(np.round(vesselpos[0][1]))
+		#Extract the curve for this vessel
+		vesselcurve=np.squeeze(dynimages[slices[i],vessely,vesselx,:])
+		#Extract maximum, mean baseline and sd in baseline
+		vesselpeak[i]=np.max(vesselcurve)
+		meanbase[i]=np.mean(vesselcurve[0:10])
+		sdbase[i]=np.std(vesselcurve[0:10])
+		plt.close()
 
-		maxpeak[i]=np.max(im*mask)# Find the peak peak value wihtin the vessel
-		location=np.argmax(im*mask)
-		maxbase[i]=np.ndarray.flatten(base)[location]# Find the baseline value of this pixel
-		
-
-
-	return maxbase, maxpeak			
-
+	h,axarr=plt.subplots(3,1,sharex='all',sharey='none',figsize=(10,8),tight_layout='True')
+	axarr[0].errorbar(slices,meanbase,sdbase,fmt='g.')
+	axarr[0].plot(slices,vesselpeak,'x')
+	axarr[0].errorbar(np.arange(len(meansig)),meansig,sdsig,fmt='b.',alpha=0.5)
+	axarr[0].text(0,-20,label)
+	axarr[1].autoscale='False'
+	axarr[1].imshow(np.max(peakvol,2).T[50:150,:],extent=(0,192,0,30))
+	axarr[2].imshow(np.max(peakvol.astype('i')-dynimages[:,:,:,5].astype('i'),1).T)
+			
+	return meanbase, sdbase, vesselpeak	
 
 
 

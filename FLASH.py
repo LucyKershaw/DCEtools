@@ -2,6 +2,7 @@
 
 import numpy as np
 import scipy.optimize
+import matplotlib.pyplot as plt
 
 def SIeqn(paramsin, flip, TR):
 	M0=paramsin[0]
@@ -11,11 +12,14 @@ def SIeqn(paramsin, flip, TR):
 	return SI
 
 
-def fittingfun(flips,TR,data,startguess=[10000,500]):
+def fittingfun(flips,TR,data,startguess=[10000,500],plot=0):
 	#startguess is [M0,T1]
 	bnds=((0,1E10),(0,100000)) # Set upper and lower bounds for parameters
 	fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='SLSQP',options={'ftol':1e-9,'disp':False,'maxiter':100000})
 	#fit=scipy.optimize.minimize(objfun,startguess,args=(flips,TR,data),bounds=bnds, method='Nelder-Mead',options={'ftol':1e-9,'disp':False,'eps':1e-10,'maxiter':100000})
+	if plot==1:
+		plt.plot(flips,data,'x')
+		plt.plot(flips,SIeqn(fit.x,flips,TR))
 	return fit
 
 

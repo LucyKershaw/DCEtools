@@ -46,6 +46,7 @@ class patient(object): # patient inherits from the object class
 
 		if os.path.isfile(os.path.join(self.patientdirect,'Analysis','hct.npy')):
 			self.hct=np.load(os.path.join(self.patientdirect,'Analysis','hct.npy'))
+			print('hct='+str(self.hct))
 		else: 
 			print('No hct found in patient folder, using default value of 0.4')
 			self.hct=0.4
@@ -71,6 +72,7 @@ class patient(object): # patient inherits from the object class
 	# Method for showing available series folders - use to find suitable tag when reading images
 	def disp_seriesfolders(self):
 		subdirects=[x for x in os.listdir(self.dicomdirect) if os.path.isdir(os.path.join(self.dicomdirect, x))]
+		subdirects.sort()
 		for item in subdirects:
 			print(item)
 		#pprint.pprint(subdirects)
@@ -89,6 +91,7 @@ class patient(object): # patient inherits from the object class
 
 		# find .dcm files
 		filenames=glob.glob(os.path.join(T2wFolder[0],'*.dcm'))
+		filenames.sort()
 		#print(filenames)
 		numfiles=len(filenames)
 		print("Reading "+str(numfiles)+" files")
@@ -106,16 +109,18 @@ class patient(object): # patient inherits from the object class
 		self.T2wims=T2wims
 
 
-	def read_dynamics(self,seriestag):
+	def read_dynamics(self,seriestag,force_reload=0):
 		
-		#Look for dynamics.npy in the Analysis folder first
-		if os.path.isfile(os.path.join(self.patientdirect,'Analysis','dynamics.npy')):
-			print('reading from saved array')
-			self.dynims=np.load(os.path.join(self.patientdirect,'Analysis','dynamics.npy'))
-			self.dyninfo=np.load(os.path.join(self.patientdirect,'Analysis','dyninfo.npy'))
-			self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+		if force_reload==0:
+			#Look for dynamics.npy in the Analysis folder first
+			if os.path.isfile(os.path.join(self.patientdirect,'Analysis','dynamics.npy')):
+				print('reading from saved array')
+				self.dynims=np.load(os.path.join(self.patientdirect,'Analysis','dynamics.npy'))
+				self.dyninfo=np.load(os.path.join(self.patientdirect,'Analysis','dyninfo.npy'))
+				self.t=np.arange(0,self.dyninfo['tres'][0]*self.dyninfo['numtimepoints'][0],self.dyninfo['tres'][0])
+				return
 
-			return
+
 		# Use known series tag by calling disp_seriesfolders first
 		
 		# Find folder that matches seriestag
@@ -127,6 +132,7 @@ class patient(object): # patient inherits from the object class
 
 		# Find all the dynamic filenames
 		dynfiles=glob.glob(os.path.join(self.dicomdirect,DynFolder[0],'*.dcm'))
+		dynfiles.sort()
 		numfiles=len(dynfiles)
 		print("Reading "+str(numfiles)+" dynamic files")
 
@@ -146,7 +152,10 @@ class patient(object): # patient inherits from the object class
 				print('TemporalPositionIdentifier found')
 				numtimepoints=int(info.TemporalPositionIdentifier)
 				self.dyninfo['numtimepoints']=numtimepoints
-				self.dyninfo['tres']=round(float(info.AcquisitionDuration/numtimepoints),3)
+				if info.Manufacturer=='SIEMENS':
+					self.dyninfo['tres']=round(float(info.AcquisitionDuration/numtimepoints),3)
+				if info.Manufacturer=='GE MEDICAL SYSTEMS':
+					self.dyninfo['tres']=round(info[0x0019,0x105a].value/(numtimepoints*1000000),3)#GE value is in microseconds
 				numslices=int(len(dynfiles)/numtimepoints)
 				self.dyninfo['numslices']=numslices
 			else: #If the tag exists but it's empty, detect the number of series from the names
@@ -186,11 +195,11 @@ class patient(object): # patient inherits from the object class
 				temporalpos=temp.AcquisitionNumber #And if it doesn't have TemporalPositionIdentifier, use the Acquisition Number
 			timept=temporalpos-1 # Find temporal position (begin at zero!)
 			
-			if temp.Manufacturer=='Philips Medical Systems':
+			if (temp.Manufacturer=='Philips Medical Systems'):
 				slice=int(np.floor(i/numtimepoints)) # Work out slice number for Philips (begin at zero!) 
 				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
 				#print(i,slice, timept, temp.SliceLocation, '0020, 0012', temp[0x0020,0x0012].value, 'Inst num, 0020, 0013',temp[0x0020,0x0013].value)
-			if temp.Manufacturer=='SIEMENS':
+			if (temp.Manufacturer=='SIEMENS') or (temp.Manufacturer=='GE MEDICAL SYSTEMS'):
 				slice=int(i-timept*numslices) # Work out the slice number for Siemens
 				#print(i,slice, timept, temp.SliceLocation, '0020, 0012', temp[0x0020,0x0012].value, 'Inst num, 0020, 0013',temp[0x0020,0x0013].value)
 				dynims[:,:,slice,timept]=temp.pixel_array # Read into the right part of the array
@@ -205,12 +214,14 @@ class patient(object): # patient inherits from the object class
 	def read_T1data(self, seriestag, measnum=0, usefolders=range(0,6,1), VFA=0, multimeas=1):
 	 #Set VFA flag to 1 if necessary, multimeas is for multiple dynamics in a VFA
 		T1Folders=glob.glob(os.path.join(self.dicomdirect,seriestag))
+		T1Folders.sort()
 		if not T1Folders:
 			print('Folder not found')
 			return
 		print('Found:')
 		pprint.pprint(T1Folders)
-		T1Folders=[T1Folders[x] for x in usefolders]
+		if len(T1Folders)>1:
+			T1Folders=[T1Folders[x] for x in usefolders]
 		print('Using these folders:' )
 		pprint.pprint(T1Folders)
 		if measnum==0:
@@ -222,35 +233,27 @@ class patient(object): # patient inherits from the object class
 		# in the first directory, read in one file to check sizes etc
 		T1files=glob.glob(os.path.join(T1Folders[0],'*.dcm')) #T1files is number of files in the series
 		info=dicom.read_file(T1files[0])
-		# print(T1files[0])
 		im=info.pixel_array		
-		# plt.imshow(im)
-		T1info=np.zeros(1,dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8',len(T1Folders)),('TIs','f8',len(T1Folders)),('N','f8')])
-		T1info['pixelsize']=float(info.PixelSpacing[0])
-		T1info['TR']=float(info.RepetitionTime)
-		T1info['N']=int(info.EchoTrainLength)
-		T1info['FlipAngle'][0][0]=float(info.FlipAngle)
-		self.T1info=T1info
-
-		if info.Manufacturer=='SIEMENS':
-			print('Warning - values for N and TR may be incorrect for Siemens dicom - please check:')
-			print('N = ' + str(self.T1info['N']))
-			print('TR = '+str(self.T1info['TR']))
-			# self.T1info['N']=0
-			# self.T1info['TR']=0
-
 
 		# Make an array of the right size to hold the images
 		T1ims=np.zeros(np.array([im.shape[0],im.shape[1],len(T1files),len(T1Folders)]))
+		#Make arrays to hold flip angle(s) or TIs
+		FlipAngle=np.zeros(len(T1Folders))
+		TIs=np.zeros(len(T1Folders))
+		#BUT Detect mpmfa data
+		if ((0x0019,0x109c) in info) and (info[0x0019,0x109c].value=='mpmfa'):
+			numflips=int(info[0x0043,0x1038].value[15])-1
+			FlipAngle=info[0x0043,0x1038].value[16:16+numflips]
 		
 		# Read in the rest, checking TI or flip angle for each folder (don't rely on series names if Philips)
 		for y in range(0,len(T1Folders)): # for each subfolder
 			T1files=glob.glob(os.path.join(self.dicomdirect,T1Folders[y],'*.dcm')) # find dicom files
+			T1files.sort()
 			temp=dicom.read_file(T1files[0]) # read first one
-			if VFA==0:
-				T1info['TIs'][0][y]=temp[0x0018,0x0082].value # set the TI value in T1info
+			if VFA==0 and len(T1Folders)>1:
+				TIs[y]=temp[0x0018,0x0082].value # set the TI value in TIs
 			if VFA==1:
-				T1info['FlipAngle'][0][y]=float(temp.FlipAngle)
+				FlipAngle[y]=float(temp.FlipAngle)
 			
 			ss=1
 			si=0
@@ -272,7 +275,7 @@ class patient(object): # patient inherits from the object class
 				T1ims[:,:,z,y]=(temp.pixel_array-si)/ss
 
 		# Make an average image for the number of multiple measurements specified (usually 1)
-		# For Siemens, order is {slice 0, slice 1... slice n}{slice 0, slice 1... slice n}
+		# For Siemens and GE, order is {slice 0, slice 1... slice n}{slice 0, slice 1... slice n}
 		
 		if multimeas!=1:
 			if temp.Manufacturer=='Philips Medical Systems':
@@ -285,11 +288,34 @@ class patient(object): # patient inherits from the object class
 
 			T1ims=T1imsAv
 
+		#At this stage, mpmfa data will be all in a single array.  Now we can separate it
+		if ((0x0019,0x109c) in info) and (info[0x0019,0x109c].value=='mpmfa'): #Detect mpmfa from private 'sequence type' tag
+			#Data are stored as Siemens - volume by volume for each flip angle
+			numslices=int(T1ims.shape[2]/numflips)
+			T1ims=np.squeeze(T1ims)
+			T1imsnew=np.zeros(np.array([T1ims.shape[0],T1ims.shape[1],numslices,numflips]))
+			for a in range(numflips):
+				start=a*numslices
+				stop=numslices*(a+1)
+				T1imsnew[:,:,:,a]=T1ims[:,:,start:stop]
+			T1ims=T1imsnew
+
+
+		
+		# Set up a structured array to hold useful information about the T1 data
+		T1info=np.array([(float(info.PixelSpacing[0]),float(info.RepetitionTime),FlipAngle,TIs,int(info.EchoTrainLength))],dtype=[('pixelsize','f8'),('TR','f8'),('FlipAngle','f8',len(FlipAngle)),('TIs','f8',len(TIs)),('N','f8')])
+
+
+		if info.Manufacturer=='SIEMENS':
+			print('Warning - values for N and TR may be incorrect for Siemens dicom - please check:')
+			print('N = ' + str(T1info['N']))
+			print('TR = '+str(T1info['TR']))
+			# self.T1info['N']=0
+			# self.T1info['TR']=0
+
 		print("T1 measurement image array size is "+str(T1ims.shape))
-		if VFA==0:
-			print('Inversion times are '+str(T1info['TIs']))
-		if VFA==1:
-			print('Flip angles are '+str(T1info['FlipAngle']))
+		print('Inversion times are '+str(T1info['TIs']))
+		print('Flip angles are '+str(T1info['FlipAngle']))
 		if measnum==0:
 			self.T1data=T1ims
 			self.T1info=T1info
@@ -305,6 +331,18 @@ class patient(object): # patient inherits from the object class
 
 	# methods for AIF
 	#####################################################
+
+	def AIF_peak_base_plot(self,peakframe):
+		#Method to make and save the plots with AIF peak and baseline and MIPS of the vessels
+		midslice=np.int(np.floor(self.dynims.shape[1]/2))
+		if peakframe==0:
+			peakframe=np.argmax(np.max(self.dynims[:,midslice,:,0:30],(0,1)))	
+		print(peakframe)
+		base, sdbase, peak = getAIF.plot_peak_baseline(self.dynims,peakframe,np.arange(3,120,1),self.patientdirect)
+
+		np.save(os.path.join(self.patientdirect,'Analysis','base.npy'),base)
+		np.save(os.path.join(self.patientdirect,'Analysis','sdbase.npy'),sdbase)
+		np.save(os.path.join(self.patientdirect,'Analysis','peak.npy'),peak)
 
 	def read_AIF_fromfile(self):
 		# read existing AIF from file in patient/Analysis directory
@@ -326,8 +364,8 @@ class patient(object): # patient inherits from the object class
 		print(peakframe)
 		if usesag==1:
 			midslice=np.int(np.floor(dynims.shape[1]/2))
-			peakframe=21
-			#peakframe=np.argmax(np.max(dynims[:,midslice,:,0:50],(0,1)))	
+			peakframe=np.argmax(np.max(dynims[:,midslice,:,0:50],(0,1)))
+			peakframe=18	
 			print(peakframe)		
 			dynims=np.swapaxes(np.swapaxes(dynims,0,2),0,1)
 
@@ -389,13 +427,24 @@ class patient(object): # patient inherits from the object class
 			AIF=AIFtemp[int(ChooseAIF[1]),:,int(ChooseAIF[0])]
 		np.save(os.path.join(self.patientdirect,'Analysis','AIFall.npy'),AIFtemp)
 		np.save(os.path.join(self.patientdirect,'Analysis','AIF.npy'),AIF) #save chosen AIF in Analysis folder as AIF.
-		self.AIF=AIF
+		self.AIF=np.squeeze(AIF)
 		
 	# Initial processing
 	#####################################################
-	def make_mask(self, use_dyn=0, tightmask=0, use_roipoly=1, save=1):
+
+	def disp_slices(self): # Method to display all the slices from the last dynamic to get an idea of which ones to make a mask on
+		stack=np.mean(self.dynims[:,:,:,-10:],3)
+		plt.figure(figsize=[18,14],tight_layout='True')
+		for i in range(stack.shape[2]):
+			plt.subplot(5,6,i+1)
+			plt.imshow(stack[:,:,i],cmap='gray')
+			plt.xticks([])
+			plt.yticks([])
+			plt.gca().set_title(str(i))
+
+	def make_mask(self, use_dyn=0, tightmask=0, use_roipoly=1, save=1, use_slices=0):
 		#Method to make a binary mask covering the area of interest - use T2w images
-		
+
 		if use_dyn==1:
 			if not hasattr(self,'dynims'):
 				print("Read in the dynamics first or to use T2w, set use_dyn to 0")
@@ -630,9 +679,9 @@ class patient(object): # patient inherits from the object class
 		if measnum==1:
 			T1info=self.T1info2
 
-		TIs=T1info['TIs'][0]
-		TR=T1info['TR'][0]
-		N=T1info['N'][0]
+		TIs=T1info['TIs']
+		TR=T1info['TR']
+		N=T1info['N']
 		flip=T1info['FlipAngle']
 		sequenceparams=(flip,np.ceil(N/2),TR,N,4000)
 		
@@ -721,7 +770,7 @@ class patient(object): # patient inherits from the object class
 		iAUC=np.zeros(self.dynmask.shape)
 
 		for sl in range(self.dynmask.shape[2]): #for each slice
-			print(sl)
+			#print(sl)
 			if np.sum(self.dynmask[:,:,sl])!=0: #if there are pixels in the slice
 				for i in range(self.dynmask.shape[0]): #loop over rows and cols
 					for j in range(self.dynmask.shape[1]):
@@ -799,9 +848,10 @@ class patient(object): # patient inherits from the object class
 
 		# Calculate the enhancement as a fraction of the baseline (so, 0 at start) during the dynamic series
 		percentenh=(self.dynims/np.repeat(baselinemean[:,:,:,np.newaxis],self.dynims.shape[3],3))-1
+		#print(np.sum(~np.isnan(percentenh)))
 		#Also calculate the initial rate of enhancement using sav_golay filter
 		IRE=np.zeros(maxenhancement.shape)
-		IRE=np.amax(scipy.signal.savgol_filter(percentenh,window_length=3, polyorder=1, deriv=1, axis=3, delta=tres),axis=3)
+		IRE=np.amax(scipy.signal.savgol_filter(percentenh,window_length=3, polyorder=1, deriv=1, axis=3, mode='constant',delta=tres),axis=3)
 
 		if save==1:
 			np.save(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'),maxenhancement)
@@ -932,6 +982,22 @@ class patient(object): # patient inherits from the object class
 			plt.plot(x,curve)
 		self.meancurve=curve
 		np.save(os.path.join(self.patientdirect,'Analysis','meancurve.npy'),curve)
+
+	def plot_curve_fit(self,x,y,sl): #Function to plot the dynamic cuve and TwoCUM for for a particular voxel
+		np.set_printoptions(precision=3,suppress=True)
+		plt.figure()
+		T1=self.T1map[x,y,sl]/1000
+		TR=self.dyninfo['TR']/1000
+		flip=self.dyninfo['FlipAngle']
+		SIcurve=np.squeeze(self.dynims[x,y,sl])
+		Conccurve=FLASH.SI2Conc(SIcurve,TR,flip,T1,15,None)
+		fitparams=self.TwoCUMfitConc[x,y,sl,:]
+		plt.plot(self.t,Conccurve,'x-')
+		plt.plot(self.t,TwoCUM.TwoCUM(fitparams[0:3],self.t,self.AIF/(1-self.hct),fitparams[4]))
+		print('[E   , Fp  , vp  , Chi2, toff, status]')
+		print(fitparams)
+		print('T1 = '+str(T1))
+
 
 
 	# Fitting
@@ -1271,6 +1337,7 @@ class patient(object): # patient inherits from the object class
 		
 		#Borrowing headers from the first dynamic volume
 		filenames=glob.glob('*.dcm') # Find all dicom files in the folder
+		filenames.sort()
 		iAUC=self.iAUC # Get the iAUC map to be written
 		numslices=iAUC.shape[2] # Find the number of slices in the map
 
@@ -1577,78 +1644,78 @@ class patient(object): # patient inherits from the object class
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','T1map.npy'))): #...and the file exists...
 				print('loading T1 map')
 				self.load_T1map() #... load it
-			# else: # Or report that it's not found
-			# 	print('T1 map not found')
+			else: # Or report that it's not found
+				print('T1 map not found')
 
 		if (not hasattr(self,'MaxEnhancement')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))):
 				print('Loading MaxEnh')
 				self.MaxEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancement.npy'))
-			# else:
-			# 	print('Maximum Enhancement map not found')
+			else:
+				print('Maximum Enhancement map not found')
 
 		if (not hasattr(self,'MaxEnhancementConc')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))):
 				print('Loading MaxEnhConc')
 				self.MaxEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','MaxEnhancementConc.npy'))
-			# else:
-			# 	print('Maximum Enhancement Conc map not found')
+			else:
+				print('Maximum Enhancement Conc map not found')
 
 		if (not hasattr(self,'InitialRateEnhancement')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))):
 				print('Loading InitialRate Enhancement')
 				self.InitialRateEnhancement=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancement.npy'))
-			# else:
-			# 	print('Initial Rate Enhancement map not found')
+			else:
+				print('Initial Rate Enhancement map not found')
 
 		if (not hasattr(self,'InitialRateEnhancementConc')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))):
 				print('Loading Initial Rate enhancement Conc')
 				self.InitialRateEnhancementConc=np.load(os.path.join(self.patientdirect,'Analysis','InitialRateEnhancementConc.npy'))
-			# else:
-			# 	print('Initial Rate Enhancement Conc map not found')
+			else:
+				print('Initial Rate Enhancement Conc map not found')
 
 		if (not hasattr(self,'ExtKetyfitSI')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))):
 				print('Loading Ext KetyfitSImaps')
 				self.ExtKetyfitSI=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSImaps.npy'))
-			# else:
-			# 	print('Ext Kety fit SI maps not found')
+			else:
+				print('Ext Kety fit SI maps not found')
 
 		if (not hasattr(self,'ExtKetyfitSIEnhFlag')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSIEnhFlag.npy'))):
 				print('Loading ExtKetyfitSIEnhFlag')
 				self.ExtKetyfitSIEnhFlag=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitSIEnhFlag.npy'))
-			# else:
-			# 	print('Ext Kety fit SI maps not found')
+			else:
+				print('Ext Kety fit SI flag maps not found')
 
 		if (not hasattr(self,'ExtKetyfitConc')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))):
 				print('Loading ExtKetyfitConc')
 				self.ExtKetyfitConc=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcmaps.npy'))
-			# else:
-			# 	print('Ext Kety fit Conc maps not found')
+			else:
+				print('Ext Kety fit Conc maps not found')
 
 		if (not hasattr(self,'ExtKetyfitConcEnhFlag')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcEnhFlag.npy'))):
 				print('Loading ExtKetyfitConcEnhFlag')
 				self.ExtKetyfitConcEnhFlag=np.load(os.path.join(self.patientdirect,'Analysis','ExtKetyfitConcEnhFlag.npy'))
-			# else:
-			# 	print('Ext Kety fit Conc maps not found')
+			else:
+				print('Ext Kety fit Conc flag maps not found')
 
 		if (not hasattr(self,'ROIasDyn')):
 			if (os.path.isfile(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'))):
 				print('Loading ROI file')
 				self.ROIasDyn=np.load(os.path.join(self.patientdirect,'Analysis','ROIasDyn.npy'))
-			# else:
-			# 	print('Ext Kety fit Conc maps not found')
+			else:
+				print('ROI not found')
 
 		self.ROIinfo=np.array(['rt_parotid', 'lt_parotid', 'rt_submandibular', 'lt_submandibular', 'parotid', 'submandibular'], dtype='<U16')
 
 		SEQ=1 # SEQ needs to be incremented for each result written to file
 		
 		if UMCU==1:
-			subjectID=self.patientdirect[split('t')][-1] # Extract subject ID to write to file
+			subjectID=self.patientdirect.split('t')[-1] # Extract subject ID to write to file
 		else:
 			subjectID=self.patientdirect.split('_')[-2][-3:] # Extract subject ID to write to file
 
@@ -1681,7 +1748,7 @@ class patient(object): # patient inherits from the object class
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
 						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
 						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', T1map, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
-					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:],'T1map',str(self.ROIinfo[X]),SEQ)
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:],'T1map',str(self.ROIinfo[X]),SEQ,UMCU)
 					SEQ=SEQ+5
 					self.get_region_stats(self.T1map,reducedmask)
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
@@ -1693,7 +1760,7 @@ class patient(object): # patient inherits from the object class
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
 						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
 						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', MaxEnhancement, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
-					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*100,'MaxEnhancement',str(self.ROIinfo[X]),SEQ) #fractional multiplied by 100 to get %
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*100,'MaxEnhancement',str(self.ROIinfo[X]),SEQ,UMCU) #fractional multiplied by 100 to get %
 					SEQ=SEQ+5
 					self.get_region_stats(self.MaxEnhancement,mask)
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
@@ -1705,7 +1772,7 @@ class patient(object): # patient inherits from the object class
 				# 	self.MaxEnhancementConc[erroneousindices]=np.nan
 				# 	self.get_region_stats(self.MaxEnhancementConc,mask)
 				# 	print(self.patientdirect.split('/')[-1]+', MaxEnhancementConc, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))
-				# 	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:],'MaxEnhancementConc',str(self.ROIinfo[X]),SEQ)# s^-1 / 3.6MMOL^-1 s^-1 = MMOL
+				# 	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:],'MaxEnhancementConc',str(self.ROIinfo[X]),SEQ,UMCU)# s^-1 / 3.6MMOL^-1 s^-1 = MMOL
 				# 	SEQ=SEQ+5
 
 				if hasattr(self, 'InitialRateEnhancement'):
@@ -1713,7 +1780,7 @@ class patient(object): # patient inherits from the object class
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
 						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
 						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', InitialRateEnhancement, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
-					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*100,'InitialRateEnhancement',str(self.ROIinfo[X]),SEQ)#Fractional multiplied by 100 to get %/s
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*100,'InitialRateEnhancement',str(self.ROIinfo[X]),SEQ,UMCU)#Fractional multiplied by 100 to get %/s
 					SEQ=SEQ+5
 					self.get_region_stats(self.InitialRateEnhancement, mask)
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
@@ -1725,13 +1792,13 @@ class patient(object): # patient inherits from the object class
 				# 	self.InitialRateEnhancementConc[erroneousindices]=np.nan
 				# 	self.get_region_stats(self.InitialRateEnhancementConc,mask)
 				# 	print(self.patientdirect.split('/')[-1]+', InitialRateEnhancementConc, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))
-				# 	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]/3.6,'InitialRateEnhancementConc',str(self.ROIinfo[X]),SEQ) # s^-2 / 3.6MMOL^-1 s^-1 = MMOL/s
+				# 	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]/3.6,'InitialRateEnhancementConc',str(self.ROIinfo[X]),SEQ,UMCU) # s^-2 / 3.6MMOL^-1 s^-1 = MMOL/s
 				# 	SEQ=SEQ+5
 
 				# if hasattr(self, 'ExtKeyfitSI'):
 				# 	self.get_region_stats(self.ExtKetyfitSI[:,:,:,0],mask)
-				# 	print(self.patientdirect.split('/')[-1]+', ExtKeyfitSI, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))			
-				#	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*60,'ExtKetyfitSI',str(self.ROIinfo[X]),SEQ)
+				# 	print(self.patientdirect.split('')[-1]+', ExtKeyfitSI, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result))			
+				#	Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*60,'ExtKetyfitSI',str(self.ROIinfo[X]),SEQ,UMCU)
 				#	SEQ=SEQ+5
 
 				if hasattr(self, 'ExtKetyfitConc'):
@@ -1741,7 +1808,7 @@ class patient(object): # patient inherits from the object class
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:
 						extendedresultswriter=csv.writer(csvfileextended,delimiter=',')
 						extendedresultswriter.writerow([self.patientdirect.split('/')[-1]+', ExtKetyfitConc, '+str(self.ROIinfo[X])+', '+str(self.get_region_stats_result)])
-					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*60,'ExtKetyfitConc',str(self.ROIinfo[X]),SEQ) # s^-1 *60 = min^-1
+					Sjogrens_export.send_to_file(subjectID,np.array(self.get_region_stats_result)[2:]*60,'ExtKetyfitConc',str(self.ROIinfo[X]),SEQ,UMCU) # s^-1 *60 = min^-1
 					SEQ=SEQ+5
 					self.get_region_stats(self.ExtKetyfitConc[:,:,:,0],mask)
 					with open ('/Users/lkershaw/Desktop/newresultsextended.csv','a',newline='') as csvfileextended:

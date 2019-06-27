@@ -9,11 +9,12 @@ def TwoCUM(params,t,AIF, toff):
     #print(params)
     # If toff value needs to be included (i.e. if not set to None), shift the AIF by the amount toff
     # Note when evaluating the model during fitting this shift has already been done
-    if toff is not None:
+    #plt.plot(AIF)
+    if toff != None:
         tnew = t - toff
         f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
         AIF = (t>=toff)*f(t-toff)
-
+        #plt.plot(AIF)
     #Test for trouble with fitting algorithm
     if np.isnan(np.sum(params)):
         F=np.zeros(len(AIF))
@@ -50,17 +51,17 @@ def Kety(params,t,AIF):
     Ktrans, ve, toff = params
 
     # Shift the AIF by the amount toff
-    #tnew = t - toff
-    #f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
-    #AIFnew = (t>toff)*f(t-toff)
+    tnew = t - toff
+    f=scipy.interpolate.interp1d(t,AIF,kind='linear',bounds_error=False,fill_value=0)
+    AIFnew = (t>toff)*f(t-toff)
 
     # Shift the AIF by the number of time points closest to the fitted toff
     # Find closest point:
-    toffrnd=np.argmin(abs(t-toff))
+    #toffrnd=np.argmin(abs(t-toff))
     # Shift the AIF
-    AIFnew=np.roll(AIF,toffrnd)
+    #AIFnew=np.roll(AIF,toffrnd)
     # Set early points before toff to zero
-    AIFnew = (t>t[toffrnd])*AIFnew
+    #AIFnew = (t>t[toffrnd])*AIFnew
 
     imp=Ktrans*np.exp(-1*Ktrans*t/ve); # Calculate the impulse response function
     convolution=np.convolve(AIFnew,imp) # Convolve impulse response with AIF
@@ -154,7 +155,7 @@ def TwoCUMfittingSI(t, AIF, uptake, toff, baselinepts, TR, flip, T1base, Ketysta
 
     return bestresult
 
-def TwoCUMfittingConc(t, AIF, uptake, toff):
+def TwoCUMfittingConc(t, AIF, uptake, toff, plot=0):
     import numpy as np
     import scipy.optimize 
     import scipy.interpolate
@@ -165,17 +166,20 @@ def TwoCUMfittingConc(t, AIF, uptake, toff):
 
     firstthird=int(np.round(len(t)/3))
     if toff is None:
-        Ketystart=np.array((0.01,0.1,t[1])) # set starting guesses for Ktrans, ve, toff
-        Ketystart=Ketystart+[t[1]]
-        Ketybnds=((0.00001,999),(0.00001,2),(0.00001,20))
+        Ketystart=np.array((0.01,0.1,t[7])) # set starting guesses for Ktrans, ve, toff
+        #Ketystart=Ketystart+[t[1]]
+        Ketybnds=((0.00001,10),(0.00001,2),(0.00001,30))
         Ketyresult=scipy.optimize.minimize(KetyobjfunConc,Ketystart,args=(t[0:firstthird],AIF[0:firstthird],uptake[0:firstthird]),bounds=Ketybnds,method='SLSQP',options={'disp':False})
         toff=0
         if not np.isnan(Ketyresult.x[2]):
             toff=Ketyresult.x[2]
             
-        #plt.plot(t,Kety(Ketyresult.x[0:4],t,AIF))
-        #print(Ketyresult.x)
-        #print(Ketyresult.success)
+        if plot==1:
+            plt.figure()
+            plt.plot(t,uptake,'rx')
+            plt.plot(t[0:firstthird],Kety(Ketyresult.x[0:4],t[0:firstthird],AIF[0:firstthird]))
+            print(Ketyresult.x)
+            print(Ketyresult.success)
 
     # Shift the AIF by the amount toff
     tnew = t - toff
@@ -185,7 +189,7 @@ def TwoCUMfittingConc(t, AIF, uptake, toff):
     # Fit the TwoCXM model, stepping through vp
     vpmatrix=np.arange(0.01,1,0.01) #was 0.01 start
     # Parameters to fit are E, Fp
-    startguess=np.array((0.1,0.5))  # Set starting guesses
+    startguess=np.array((0.1,0.05))  # Set starting guesses
     bnds=((0.00001,2),(0.00001,10)) # Set upper and lower bounds for parameters
     resultsmatrix=np.zeros((len(vpmatrix),6))  # Initialise results array
 
@@ -198,8 +202,11 @@ def TwoCUMfittingConc(t, AIF, uptake, toff):
     bestindex=np.nanargmin(resultsmatrix[:,3])
     bestresult=resultsmatrix[bestindex,:]
     #print(bestresult)
-    plt.plot(t,uptake,'rx')
-    plt.plot(t,TwoCUM(bestresult[0:3],t,AIF,toff),'k-',linewidth=4)
+    if plot==1:
+        print(resultsmatrix)
+        plt.figure()
+        plt.plot(t,uptake,'rx')
+        plt.plot(t,TwoCUM(bestresult[0:3],t,AIF,toff),'k-',linewidth=4)
     return bestresult
 
 def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):
@@ -212,6 +219,7 @@ def Ketyobjfun(paramsin,t,AIF,data,TR,flip,T1base,M0):
 
 def KetyobjfunConc(paramsin,t,AIF,data):
     import numpy as np
+    #print(paramsin)
     temp=data-Kety(paramsin,t,AIF)
     return np.sqrt(np.sum(temp**2))
 

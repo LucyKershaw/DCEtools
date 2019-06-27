@@ -27,6 +27,7 @@ def Filesort_Philips(direct):
 
 	# Main directory
 	filenames=glob.glob(os.path.join(direct,'I*'))
+	filenames.sort()
 	print('Processing main directory')
 
 	for N in filenames:
@@ -35,6 +36,7 @@ def Filesort_Philips(direct):
 	# Subdirectories
 	for M in subdirects:
 		filenames=glob.glob(os.path.join(direct,M,'I*')) # find image files
+		filenames.sort()
 		print(len(filenames))
 		print('Processing subdirectory '+M)
 		for N in filenames:
@@ -77,6 +79,7 @@ def Filesort_Siemens(direct,collapse_dynamics=1):
 
 	# Main directory
 	filenames=glob.glob(os.path.join(direct,'*.dcm'))
+	filenames.sort()
 	if len(filenames)==0:
 		filenames=glob.glob(os.path.join(direct,'*.IMA'))
 	print('Processing directory')
@@ -92,6 +95,7 @@ def Filesort_Siemens(direct,collapse_dynamics=1):
 	if collapse_dynamics==1:
 		#get a list of VIBE images
 		vibefiles=glob.glob(os.path.join(direct,'*vibe*'))
+		vibefiles.sort()
 		vibefiles=[os.path.basename(Y) for Y in vibefiles]
 		#find the seriesnumbers
 		allvibenums=[int(X.split('_')[0]) for X in vibefiles]
@@ -123,13 +127,14 @@ def Filesort_Siemens(direct,collapse_dynamics=1):
 ##############################################################################################
 # Function to rename Siemens dicom within series folders so that images are in sequential order
 
-def rename_in_folders(direct, UMCUPhilips=0, rename_folders=0):
+def rename_in_folders(direct, UMCUPhilips=0, rename_folders=0, UoMGE=0):
 	import dicom
 	import os
 	import glob
 
 	#Find existing series folders
 	foldernames=glob.glob(os.path.join(direct,'*'))
+	foldernames.sort()
 	#print(foldernames)
 
 	if UMCUPhilips==1:
@@ -137,6 +142,7 @@ def rename_in_folders(direct, UMCUPhilips=0, rename_folders=0):
 		#find existing filenames
 		for j in range(len(foldernames)):
 			filenames=glob.glob(os.path.join(foldernames[j],'I*'))
+			filenames.sort()
 			# Then rename each file
 			for i in range(len(filenames)):
 				dicom_renamePhilips(filenames[i],foldernames[j])
@@ -147,15 +153,22 @@ def rename_in_folders(direct, UMCUPhilips=0, rename_folders=0):
 		return
 
 
+
 	#For each folder...
 	#find existing filenames
 	for j in range(len(foldernames)):
 		filenames=glob.glob(os.path.join(foldernames[j],'*.dcm'))
+		filenames.sort()
+		if UoMGE==1: # From XNAT, series folders have an extra directory inside them
+			filenames=glob.glob(os.path.join(foldernames[j],'DICOM/*.dcm'))
+			filenames.sort()
 		# Then rename each file
 		for i in range(len(filenames)):
 			dicom_renameSiemens(filenames[i],foldernames[j])
 			if i%10==0:
 				print(i)
+		if UoMGE==1:
+			os.rmdir(os.path.join(foldernames[j],'DICOM'))
 
 	if rename_folders==1:
 		renamefolders(foldernames)
@@ -223,7 +236,9 @@ def sort_series(direct):
 
 	print('Sorting dicom files')
 	allnames=glob.glob(os.path.join(direct,'*.dcm')) # find the dicom files
+	allnames.sort()
 	filenames=[os.path.split(X)[1] for X in allnames]# find the filenames only
+	filenames.sort()
 	allseries=[X.split('_')[0]+'_'+X.split('_')[1] for X in filenames]# find the series numbers and names
 	# allseries=[X.split('_')[0] for X in filenames]
 	series=set(allseries) # find unique entries in this list
@@ -244,6 +259,7 @@ def sort_DWI():
 	import shutil
 
 	filenames=glob.glob('*.dcm')
+	filenames.sort()
 	b800=filenames[2:240:3]
 	b100=filenames[0:240:3]
 
@@ -266,7 +282,9 @@ def renamefolders(foldernames):
 	for j in range(len(foldernames)):
 		#Get the name of the first file:
 		try:
-			firstfile=glob.glob(os.path.join(foldernames[j],'*.dcm'))[0]
+			firstfile=glob.glob(os.path.join(foldernames[j],'*.dcm'))
+			firstfile.sort()
+			firstfile=firstfile[0]
 			folderpath=os.path.split(foldernames[j])[0]
 			newfoldername=os.path.join(folderpath,os.path.split(firstfile)[1].split('_0001')[0])
 			os.rename(foldernames[j],newfoldername)
